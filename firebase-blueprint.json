@@ -28,6 +28,7 @@
         "eventId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "name": { "type": "string", "minLength": 1, "maxLength": 120 },
         "boothName": { "type": "string", "maxLength": 120 },
+        "whatsappPhone": { "type": "string", "maxLength": 30 },
         "assignedItems": { "type": "array", "description": "List of item IDs this organizer can distribute (max 20)." },
         "magicToken": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "isActive": { "type": "boolean" },
@@ -55,7 +56,9 @@
       "properties": {
         "participantName": { "type": "string", "minLength": 1, "maxLength": 200 },
         "barcode": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "itemId": { "type": "string", "maxLength": 128 },
         "itemName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "organizerId": { "type": "string", "maxLength": 128 },
         "organizerName": { "type": "string", "minLength": 1, "maxLength": 120 },
         "action": { "type": "string", "enum": ["delivered", "undone"] },
         "timestamp": { "type": "string", "format": "date-time" }

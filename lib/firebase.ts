@@ -125,10 +125,7 @@ export async function testFirestoreConnection(): Promise<boolean> {
     return false;
   }
   try {
-    const { auth, db } = getFirebaseServices();
-    if (!auth.currentUser) {
-      return false;
-    }
+    const { db } = getFirebaseServices();
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
   } catch (error) {

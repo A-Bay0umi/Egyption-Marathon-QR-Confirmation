@@ -2,9 +2,45 @@ import type { MarathonEvent, Organizer } from './types';
 
 export const ADMIN_PASSCODE = 'Abdallah@2008';
 export const ADMIN_SESSION_STORAGE_KEY = 'marathon_admin_passcode_session_v1';
+export const ORGANIZER_SESSION_STORAGE_KEY = 'marathon_organizer_session_v1';
+
+export interface SavedOrganizerSession {
+  eventId: string;
+  token: string;
+}
 
 export function verifyAdminPasscode(input: string): boolean {
   return input.trim() === ADMIN_PASSCODE;
+}
+
+export function isAdminSavedLocally(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(ADMIN_SESSION_STORAGE_KEY) === 'authenticated';
+}
+
+export function saveOrganizerSessionLocally(session: SavedOrganizerSession): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(ORGANIZER_SESSION_STORAGE_KEY, JSON.stringify(session));
+}
+
+export function readOrganizerSessionLocally(): SavedOrganizerSession | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(ORGANIZER_SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedOrganizerSession>;
+    if (parsed && typeof parsed.eventId === 'string' && typeof parsed.token === 'string' && parsed.eventId && parsed.token) {
+      return { eventId: parsed.eventId, token: parsed.token };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearOrganizerSessionLocally(): void {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(ORGANIZER_SESSION_STORAGE_KEY);
 }
 
 export function normalizeWhatsAppPhone(raw: string): string {
@@ -21,75 +57,14 @@ export function normalizeWhatsAppPhone(raw: string): string {
   return normalized.length >= 8 ? normalized : '';
 }
 
-export interface OrganizerInvitePayload {
-  org: Organizer;
-  event: MarathonEvent | null;
-}
-
-function toBase64Url(str: string): string {
-  const bytes = new TextEncoder().encode(str);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function fromBase64Url(b64url: string): string {
-  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
-  const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
-  const binary = atob(`${b64}${pad}`);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new TextDecoder().decode(bytes);
-}
-
-export function encodeOrganizerInvite(org: Organizer, event: MarathonEvent | null): string {
-  const compact: OrganizerInvitePayload = {
-    org,
-    event: event
-      ? {
-          id: event.id,
-          name: event.name,
-          date: event.date,
-          isActive: true,
-          deliverableItems: event.deliverableItems,
-          displayFields: event.displayFields,
-          displayLabels: event.displayLabels,
-          searchFields: event.searchFields,
-          totalParticipants: event.totalParticipants,
-          ownerUid: event.ownerUid,
-          createdAt: event.createdAt,
-        }
-      : null,
-  };
-  return toBase64Url(JSON.stringify(compact));
-}
-
-export function decodeOrganizerInvite(encoded: string): OrganizerInvitePayload | null {
-  try {
-    if (!encoded || !encoded.trim()) return null;
-    const json = fromBase64Url(encoded.trim());
-    const parsed = JSON.parse(json) as OrganizerInvitePayload;
-    if (!parsed || !parsed.org || !parsed.org.magicToken || !parsed.org.id) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
 export function buildOrganizerMagicUrl(
   origin: string,
   org: Organizer,
-  event: MarathonEvent | null
+  eventId?: string
 ): string {
   const cleanOrigin = origin.replace(/\/+$/, '');
-  const invite = encodeOrganizerInvite(org, event);
-  return `${cleanOrigin}/?token=${encodeURIComponent(org.magicToken)}&invite=${encodeURIComponent(invite)}`;
+  const targetEventId = eventId || org.eventId;
+  return `${cleanOrigin}/?event=${encodeURIComponent(targetEventId)}&token=${encodeURIComponent(org.magicToken)}`;
 }
 
 export function buildOrganizerWhatsAppMessage(
@@ -97,21 +72,21 @@ export function buildOrganizerWhatsAppMessage(
   org: Organizer,
   event: MarathonEvent | null
 ): string {
-  const itemsList =
+  const rolesList =
     event?.deliverableItems
       .filter((i) => org.assignedItems.includes(i.id))
       .map((i) => i.name)
-      .join('، ') || 'المستلزمات المخصصة';
+      .join('، ') || 'المهام المخصصة';
 
   return [
     `مرحباً ${org.name} 👋`,
-    `تم تفعيل حسابك لتسليم مستلزمات "${event?.name ?? 'الماراثون'}" (${org.boothName || 'نقطة التوزيع'}).`,
+    `تم تفعيل حسابك في إيفنت "${event?.name ?? 'الماراثون'}"${org.boothName ? ` (${org.boothName})` : ''}.`,
     '',
-    `🔗 اضغط على رابط الدخول المباشر الخاص بك:`,
+    `🔗 رابط الدخول الخاص بك:`,
     magicUrl,
     '',
-    `📦 المستلزمات المخصصة لبوثك: ${itemsList}`,
-    `📱 ملاحظة: بمجرد فتح الرابط، يتم حفظ تسجيل دخولك تلقائياً على هاتفك للعمل فوراً حتى عند انقطاع الإنترنت.`,
+    `📋 الوظائف / المهام المخصصة لك: ${rolesList}`,
+    `📱 يتم حفظ تسجيل دخولك تلقائياً على هاتفك بمجرد فتح الرابط.`,
   ].join('\n');
 }
 

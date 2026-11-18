@@ -12,8 +12,7 @@ import {
 import {
   buildOrganizerMagicUrl,
   buildOrganizerWhatsAppHref,
-  decodeOrganizerInvite,
-  encodeOrganizerInvite,
+  buildOrganizerWhatsAppMessage,
   normalizeWhatsAppPhone,
   verifyAdminPasscode,
 } from './admin-auth';
@@ -32,7 +31,7 @@ const sampleOrganizer: Organizer = {
 };
 
 const sampleParticipant: Participant = {
-  barcode: 'SHARM-1042',
+  barcode: 'RUN-1042',
   searchKeywords: generateSearchKeywords(
     {
       الاسم: 'علي محمد إبراهيم',
@@ -41,7 +40,7 @@ const sampleParticipant: Participant = {
       'مقاس التيشيرت': 'L',
     },
     ['الاسم', 'رقم الصدر', 'رقم الموبايل'],
-    'SHARM-1042'
+    'RUN-1042'
   ),
   dynamicData: {
     الاسم: 'علي محمد إبراهيم',
@@ -57,14 +56,14 @@ const bagItem: DeliverableItem = { id: 'bag', name: 'شنطة المتسابق' 
 
 test('normalizeBarcode converts Eastern Arabic digits and strips invalid chars', () => {
   assert.equal(normalizeBarcode('  ١٠٤٢  '), '1042');
-  assert.equal(normalizeBarcode('SHARM 1042!'), 'SHARM-1042');
+  assert.equal(normalizeBarcode('RUN 1042!'), 'RUN-1042');
 });
 
 test('matchesSearchQuery matches by 3-char Arabic prefix, bib, barcode, and last 4 phone digits', () => {
   assert.equal(matchesSearchQuery(sampleParticipant, 'علي'), true);
   assert.equal(matchesSearchQuery(sampleParticipant, '8891'), true);
   assert.equal(matchesSearchQuery(sampleParticipant, '1042'), true);
-  assert.equal(matchesSearchQuery(sampleParticipant, 'SHARM-1042'), true);
+  assert.equal(matchesSearchQuery(sampleParticipant, 'RUN-1042'), true);
   assert.equal(matchesSearchQuery(sampleParticipant, '9999'), false);
 });
 
@@ -163,7 +162,7 @@ test('adminUndoDelivery clears delivery status and records undone audit log', ()
 test('computeEventStats and autoSuggestColumnMapping return accurate output', () => {
   const p2: Participant = {
     ...sampleParticipant,
-    barcode: 'SHARM-1043',
+    barcode: 'RUN-1043',
     deliveries: {
       tshirt: {
         status: 'delivered',
@@ -197,7 +196,7 @@ test('verifyAdminPasscode validates Abdallah@2008 strictly', () => {
   assert.equal(verifyAdminPasscode('wrong'), false);
 });
 
-test('normalizeWhatsAppPhone and organizer magic invite round-trip cleanly with Arabic text', () => {
+test('normalizeWhatsAppPhone and organizer event magic links build cleanly with Arabic text', () => {
   assert.equal(normalizeWhatsAppPhone('01012345678'), '201012345678');
   assert.equal(normalizeWhatsAppPhone('+20 101-234-5678'), '201012345678');
   assert.equal(normalizeWhatsAppPhone('123'), '');
@@ -216,20 +215,20 @@ test('normalizeWhatsAppPhone and organizer magic invite round-trip cleanly with 
   };
   const orgWithPhone: Organizer = {
     ...sampleOrganizer,
+    assignedItems: ['tshirt', 'bag'],
     whatsappPhone: '201012345678',
   };
 
-  const encoded = encodeOrganizerInvite(orgWithPhone, evt);
-  const decoded = decodeOrganizerInvite(encoded);
-  assert.ok(decoded);
-  assert.equal(decoded?.org.name, 'أحمد حسن');
-  assert.equal(decoded?.org.magicToken, 'TOKEN_A');
-  assert.equal(decoded?.event?.name, 'ماراثون الإسكندرية');
+  const url = buildOrganizerMagicUrl('https://example.com/', orgWithPhone, 'evt_1');
+  assert.equal(url, 'https://example.com/?event=evt_1&token=TOKEN_A');
 
-  const url = buildOrganizerMagicUrl('https://example.com', orgWithPhone, evt);
-  assert.equal(url.startsWith('https://example.com/?token=TOKEN_A&invite='), true);
+  const msg = buildOrganizerWhatsAppMessage(url, orgWithPhone, evt);
+  assert.equal(msg.includes('ماراثون الإسكندرية'), true);
+  assert.equal(msg.includes('التيشيرت، شنطة المتسابق'), true);
+  assert.equal(msg.includes(url), true);
 
   const waHref = buildOrganizerWhatsAppHref(url, orgWithPhone, evt);
   assert.equal(waHref.startsWith('https://wa.me/201012345678?text='), true);
 });
+
 

@@ -1,0 +1,550 @@
+'use client';
+
+import React, { useState } from 'react';
+import {
+  Check,
+  Copy,
+  Edit3,
+  ListChecks,
+  MessageCircle,
+  MessageSquareText,
+  Phone,
+  Plus,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+  UserPlus,
+  X,
+} from 'lucide-react';
+import {
+  buildOrganizerMagicUrl,
+  buildOrganizerWhatsAppHref,
+  buildOrganizerWhatsAppMessage,
+  normalizeWhatsAppPhone,
+} from '@/lib/admin-auth';
+import {
+  createOrganizerDoc,
+  deleteOrganizerDoc,
+  updateEventDoc,
+  updateOrganizerDoc,
+} from '@/lib/firestore-store';
+import type { DeliverableItem, MarathonEvent, Organizer } from '@/lib/types';
+
+interface EventSettingsOrganizersTabProps {
+  event: MarathonEvent;
+  organizers: Organizer[];
+}
+
+export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProps> = ({
+  event,
+  organizers,
+}) => {
+  // Deliverable Tasks management
+  const [newTaskName, setNewTaskName] = useState('');
+  const [savingTask, setSavingTask] = useState(false);
+
+  // Create Organizer state
+  const [orgName, setOrgName] = useState('');
+  const [boothName, setBoothName] = useState('');
+  const [whatsappPhone, setWhatsappPhone] = useState('');
+  const [assignedItems, setAssignedItems] = useState<string[]>(
+    event.deliverableItems.map((i) => i.id)
+  );
+  const [creatingOrg, setCreatingOrg] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Edit Organizer Roles inline
+  const [editingOrgId, setEditingOrgId] = useState<string | null>(null);
+  const [editingRoles, setEditingRoles] = useState<string[]>([]);
+
+  // Clipboard feedback
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
+  const handleAddTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = newTaskName.trim();
+    if (!clean) return;
+    setSavingTask(true);
+    try {
+      const id = `task_${Date.now().toString(36)}`;
+      const nextItems: DeliverableItem[] = [...event.deliverableItems, { id, name: clean }];
+      await updateEventDoc(event.id, { deliverableItems: nextItems });
+      setNewTaskName('');
+      setAssignedItems((prev) => [...prev, id]);
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    const nextItems = event.deliverableItems.filter((i) => i.id !== taskId);
+    await updateEventDoc(event.id, { deliverableItems: nextItems });
+    setAssignedItems((prev) => prev.filter((id) => id !== taskId));
+  };
+
+  const toggleCreateRole = (id: string) => {
+    setAssignedItems((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleCreateOrganizer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orgName.trim()) {
+      setFormError('يرجى إدخال اسم المنظم');
+      return;
+    }
+    if (event.deliverableItems.length === 0) {
+      setFormError('أضف مهمة تسليم واحدة على الأقل أعلاه أولاً');
+      return;
+    }
+    if (assignedItems.length === 0) {
+      setFormError('اختر وظيفة / مهمة واحدة على الأقل لهذا المنظم');
+      return;
+    }
+    setFormError(null);
+    setCreatingOrg(true);
+    try {
+      const cleanPhone = normalizeWhatsAppPhone(whatsappPhone);
+      await createOrganizerDoc({
+        eventId: event.id,
+        name: orgName.trim(),
+        boothName: boothName.trim(),
+        whatsappPhone: cleanPhone || undefined,
+        assignedItems,
+      });
+      setOrgName('');
+      setBoothName('');
+      setWhatsappPhone('');
+    } finally {
+      setCreatingOrg(false);
+    }
+  };
+
+  const startEditingRoles = (org: Organizer) => {
+    setEditingOrgId(org.id);
+    setEditingRoles(org.assignedItems);
+  };
+
+  const toggleEditRole = (id: string) => {
+    setEditingRoles((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const saveEditedRoles = async (org: Organizer) => {
+    if (editingRoles.length === 0) return;
+    await updateOrganizerDoc(org.id, { assignedItems: editingRoles });
+    setEditingOrgId(null);
+  };
+
+  const getMagicLink = (org: Organizer) => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    return buildOrganizerMagicUrl(origin, org, event.id);
+  };
+
+  const handleCopyLink = async (org: Organizer) => {
+    try {
+      await navigator.clipboard.writeText(getMagicLink(org));
+      setCopiedId(org.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      // Ignore clipboard permission errors
+    }
+  };
+
+  const handleCopyMessage = async (org: Organizer) => {
+    try {
+      const msg = buildOrganizerWhatsAppMessage(getMagicLink(org), org, event);
+      await navigator.clipboard.writeText(msg);
+      setCopiedMsgId(org.id);
+      setTimeout(() => setCopiedMsgId(null), 2000);
+    } catch {
+      // Ignore clipboard permission errors
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Section 1: Tasks / Deliverable Items Settings */}
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <ListChecks className="w-5 h-5 text-emerald-600" />
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              إعدادات المهام والوظائف في هذا الإيفنت
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-neutral-400">
+              المهام التي يتم توزيعها على المتسابقين (مثل: التيشيرت، رقم الصدر، الشنطة، الميدالية...)
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={(e) => void handleAddTask(e)} className="flex flex-col sm:flex-row gap-2.5">
+          <input
+            type="text"
+            value={newTaskName}
+            onChange={(e) => setNewTaskName(e.target.value)}
+            placeholder="أضف مهمة جديدة (مثال: التيشيرت)"
+            className="flex-1 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+          />
+          <button
+            type="submit"
+            disabled={savingTask || !newTaskName.trim()}
+            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-black px-5 py-2.5 text-xs font-bold min-h-[44px] whitespace-nowrap disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" />
+            <span>إضافة مهمة</span>
+          </button>
+        </form>
+
+        {event.deliverableItems.length === 0 ? (
+          <p className="text-xs text-slate-500 dark:text-neutral-400">
+            لا توجد مهام مضافة حتى الآن. أضف مهمة واحدة على الأقل لتوزيعها على المنظمين.
+          </p>
+        ) : (
+          <div className="divide-y divide-slate-100 dark:divide-neutral-800 border border-slate-200 dark:border-neutral-800 rounded-xl overflow-hidden">
+            {event.deliverableItems.map((item) => (
+              <div
+                key={item.id}
+                className="px-4 py-3 flex items-center justify-between gap-3 bg-slate-50/50 dark:bg-black/40"
+              >
+                <span className="text-sm font-bold text-slate-900 dark:text-white">
+                  {item.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteTask(item.id)}
+                  aria-label={`حذف مهمة ${item.name}`}
+                  className="inline-flex items-center gap-1 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 px-2.5 py-1.5 min-h-[36px]"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>حذف</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Section 2: Organizers & Multi-Role Assignment + WhatsApp Links */}
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-5">
+        <div className="flex items-center gap-2">
+          <UserPlus className="w-5 h-5 text-emerald-600" />
+          <div>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              إضافة منظم وتحديد وظائفه
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-neutral-400">
+              يمكنك اختيار وظيفة واحدة أو أكثر للمنظم؛ إذا اخترت أكثر من وظيفة سيتبدل بينها من هاتفه بسهولة.
+            </p>
+          </div>
+        </div>
+
+        <form onSubmit={(e) => void handleCreateOrganizer(e)} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label
+                htmlFor="org-name-input"
+                className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
+              >
+                اسم المنظم
+              </label>
+              <input
+                id="org-name-input"
+                type="text"
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                placeholder="مثال: خالد محمود"
+                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="org-booth-input"
+                className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
+              >
+                اسم البوث (اختياري)
+              </label>
+              <input
+                id="org-booth-input"
+                type="text"
+                value={boothName}
+                onChange={(e) => setBoothName(e.target.value)}
+                placeholder="مثال: بوث 1"
+                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="org-whatsapp-input"
+                className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
+              >
+                رقم واتساب المنظم (اختياري)
+              </label>
+              <div className="relative">
+                <Phone className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="org-whatsapp-input"
+                  type="tel"
+                  dir="ltr"
+                  value={whatsappPhone}
+                  onChange={(e) => setWhatsappPhone(e.target.value)}
+                  placeholder="01012345678"
+                  className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-9 pl-3 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-bold text-slate-700 dark:text-neutral-300 mb-2">
+              الوظائف المصرح للمنظم بتسليمها:
+            </div>
+            {event.deliverableItems.length === 0 ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400">
+                أضف مهاماً في القسم العلوي أولاً لتتمكن من إسنادها للمنظمين.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {event.deliverableItems.map((item) => (
+                  <label
+                    key={item.id}
+                    className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-bold cursor-pointer min-h-[44px] transition-colors ${
+                      assignedItems.includes(item.id)
+                        ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200'
+                        : 'border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black text-slate-700 dark:text-neutral-300'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={assignedItems.includes(item.id)}
+                      onChange={() => toggleCreateRole(item.id)}
+                      className="w-4 h-4 accent-emerald-600 rounded"
+                    />
+                    <span>{item.name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {formError && <p className="text-xs font-semibold text-red-600">{formError}</p>}
+
+          <button
+            type="submit"
+            disabled={creatingOrg}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 text-sm min-h-[44px] disabled:opacity-50"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{creatingOrg ? 'جاري الحفظ...' : 'إضافة المنظم وتوليد رابط الإيفنت'}</span>
+          </button>
+        </form>
+
+        {/* Organizers List */}
+        <div className="pt-4 border-t border-slate-100 dark:border-neutral-800 space-y-3">
+          <div className="text-sm font-bold text-slate-900 dark:text-white">
+            قائمة المنظمين في هذا الإيفنت ({organizers.length})
+          </div>
+
+          {organizers.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 dark:border-neutral-800 p-6 text-center text-xs text-slate-500 dark:text-neutral-400">
+              لم تتم إضافة أي منظمين لهذا الإيفنت بعد.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {organizers.map((org) => {
+                const assignedNames = event.deliverableItems
+                  .filter((i) => org.assignedItems.includes(i.id))
+                  .map((i) => i.name)
+                  .join(' · ');
+                const isEditing = editingOrgId === org.id;
+
+                return (
+                  <div
+                    key={org.id}
+                    data-testid={`organizer-row-${org.magicToken}`}
+                    className={`rounded-2xl border p-4 transition-colors space-y-3 ${
+                      org.isActive
+                        ? 'border-slate-200 dark:border-neutral-800 bg-slate-50/40 dark:bg-black/40'
+                        : 'border-red-300 dark:border-red-900 bg-red-50/40 dark:bg-red-950/20'
+                    }`}
+                  >
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {org.name}
+                          </span>
+                          {org.boothName && (
+                            <span className="text-xs text-slate-500 dark:text-neutral-400">
+                              · {org.boothName}
+                            </span>
+                          )}
+                          <span className="text-xs font-mono-num font-bold text-emerald-700 dark:text-emerald-400">
+                            · سلّم {org.deliveredCount} عنصر
+                          </span>
+                        </div>
+
+                        <div className="text-xs text-slate-600 dark:text-neutral-400">
+                          الوظائف: {assignedNames || 'لا يوجد'}
+                          {org.whatsappPhone && (
+                            <>
+                              {' '}
+                              · واتساب:{' '}
+                              <span dir="ltr" className="font-ascii-mono font-semibold">
+                                +{org.whatsappPhone}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <a
+                          href={buildOrganizerWhatsAppHref(getMagicLink(org), org, event)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-testid={`whatsapp-btn-${org.magicToken}`}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-bold min-h-[42px]"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          <span>{org.whatsappPhone ? 'إرسال مباشر واتساب' : 'واتساب'}</span>
+                        </a>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyMessage(org)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-xs font-bold text-slate-800 dark:text-white min-h-[42px]"
+                        >
+                          {copiedMsgId === org.id ? (
+                            <>
+                              <Check className="w-4 h-4 text-emerald-600" />
+                              <span>نُسخت الرسالة</span>
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquareText className="w-4 h-4" />
+                              <span>نسخ الرسالة</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleCopyLink(org)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-xs font-bold text-slate-800 dark:text-white min-h-[42px]"
+                        >
+                          {copiedId === org.id ? (
+                            <>
+                              <Check className="w-4 h-4 text-emerald-600" />
+                              <span>تم النسخ</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4" />
+                              <span>نسخ الرابط</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            isEditing ? setEditingOrgId(null) : startEditingRoles(org)
+                          }
+                          className="inline-flex items-center gap-1 rounded-xl border border-slate-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 px-3 py-2 text-xs font-bold text-slate-700 dark:text-neutral-200 min-h-[42px]"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>تعديل الوظائف</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          data-testid={`killswitch-${org.magicToken}`}
+                          onClick={() =>
+                            void updateOrganizerDoc(org.id, { isActive: !org.isActive })
+                          }
+                          className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold min-h-[42px] ${
+                            org.isActive
+                              ? 'bg-red-600 hover:bg-red-700 text-white'
+                              : 'bg-slate-900 dark:bg-white text-white dark:text-black'
+                          }`}
+                        >
+                          {org.isActive ? (
+                            <>
+                              <ShieldAlert className="w-4 h-4" />
+                              <span>تجميد</span>
+                            </>
+                          ) : (
+                            <>
+                              <ShieldCheck className="w-4 h-4" />
+                              <span>إعادة تفعيل</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => void deleteOrganizerDoc(org.id)}
+                          aria-label={`حذف ${org.name}`}
+                          className="p-2 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 min-h-[42px] min-w-[42px] flex items-center justify-center"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Inline Role Editor */}
+                    {isEditing && (
+                      <div className="pt-3 border-t border-slate-200 dark:border-neutral-800 space-y-2.5">
+                        <div className="text-xs font-bold text-slate-700 dark:text-neutral-300">
+                          تحديث وظائف {org.name}:
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {event.deliverableItems.map((item) => (
+                            <label
+                              key={item.id}
+                              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 dark:border-neutral-700 bg-white dark:bg-black px-3 py-1.5 text-xs font-semibold cursor-pointer min-h-[38px]"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={editingRoles.includes(item.id)}
+                                onChange={() => toggleEditRole(item.id)}
+                                className="w-4 h-4 accent-emerald-600 rounded"
+                              />
+                              <span>{item.name}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={editingRoles.length === 0}
+                            onClick={() => void saveEditedRoles(org)}
+                            className="rounded-lg bg-emerald-600 text-white px-4 py-2 text-xs font-bold min-h-[36px] disabled:opacity-50"
+                          >
+                            حفظ التغييرات
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingOrgId(null)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 dark:border-neutral-700 px-3 py-2 text-xs font-semibold min-h-[36px]"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>إلغاء</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+};

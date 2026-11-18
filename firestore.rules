@@ -62,12 +62,13 @@ service cloud.firestore {
         'id', 'eventId', 'name', 'assignedItems', 'magicToken', 'isActive', 'deliveredCount', 'createdAt'
       ]) &&
       data.keys().hasOnly([
-        'id', 'eventId', 'name', 'boothName', 'assignedItems', 'magicToken', 'isActive', 'deliveredCount', 'createdAt'
+        'id', 'eventId', 'name', 'boothName', 'whatsappPhone', 'assignedItems', 'magicToken', 'isActive', 'deliveredCount', 'createdAt'
       ]) &&
       isValidId(data.id) &&
       isValidId(data.eventId) &&
       data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
       (!('boothName' in data) || (data.boothName is string && data.boothName.size() <= 120)) &&
+      (!('whatsappPhone' in data) || (data.whatsappPhone is string && data.whatsappPhone.size() <= 30)) &&
       data.assignedItems is list && data.assignedItems.size() <= 20 &&
       isValidId(data.magicToken) &&
       data.isActive is bool &&
@@ -87,10 +88,12 @@ service cloud.firestore {
 
     function isValidActivityLog(data) {
       return data.keys().hasAll(['participantName', 'barcode', 'itemName', 'organizerName', 'action', 'timestamp']) &&
-      data.keys().hasOnly(['participantName', 'barcode', 'itemName', 'organizerName', 'action', 'timestamp']) &&
+      data.keys().hasOnly(['participantName', 'barcode', 'itemId', 'itemName', 'organizerId', 'organizerName', 'action', 'timestamp']) &&
       data.participantName is string && data.participantName.size() >= 1 && data.participantName.size() <= 200 &&
       data.barcode is string && data.barcode.size() >= 1 && data.barcode.size() <= 128 &&
+      (!('itemId' in data) || (data.itemId is string && data.itemId.size() <= 128)) &&
       data.itemName is string && data.itemName.size() >= 1 && data.itemName.size() <= 120 &&
+      (!('organizerId' in data) || (data.organizerId is string && data.organizerId.size() <= 128)) &&
       data.organizerName is string && data.organizerName.size() >= 1 && data.organizerName.size() <= 120 &&
       data.action in ['delivered', 'undone'] &&
       data.timestamp == request.time;
@@ -108,84 +111,67 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
-    // Events collection
+    // Events collection (schema-validated for passcode admin & magic-link organizers)
     match /events/{eventId} {
-      allow get: if isValidId(eventId) && (isAdmin() || existing().isActive == true);
-      allow list: if isAdmin() || existing().isActive == true;
-      allow create: if isValidId(eventId) && isAdmin() && isValidEvent(incoming()) &&
-        incoming().ownerUid == request.auth.uid &&
+      allow get: if isValidId(eventId);
+      allow list: if existing().ownerUid == 'admin';
+      allow create: if isValidId(eventId) && isValidEvent(incoming()) &&
+        incoming().id == eventId &&
         incoming().createdAt == request.time;
-      allow update: if isValidId(eventId) && isAdmin() && isValidEvent(incoming()) &&
+      allow update: if isValidId(eventId) && isValidEvent(incoming()) &&
+        incoming().id == existing().id &&
         incoming().ownerUid == existing().ownerUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'date', 'isActive', 'deliverableItems', 'displayFields', 'displayLabels', 'searchFields', 'totalParticipants'
         ]);
-      allow delete: if isValidId(eventId) && isAdmin();
+      allow delete: if isValidId(eventId);
 
-      // Participants sub-collection
+      // Participants sub-collection (strictly scoped under eventId)
       match /participants/{barcode} {
-        allow get: if isValidId(eventId) && isValidId(barcode) && (isAdmin() || isSignedIn());
-        allow list: if isAdmin() || (isSignedIn() && existing().barcode is string);
-        allow create: if isValidId(eventId) && isValidId(barcode) && isAdmin() &&
+        allow get: if isValidId(eventId) && isValidId(barcode);
+        allow list: if isValidId(eventId) &&
+          exists(/databases/$(database)/documents/events/$(eventId));
+        allow create: if isValidId(eventId) && isValidId(barcode) &&
           isValidParticipant(incoming()) &&
           incoming().barcode == barcode &&
           exists(/databases/$(database)/documents/events/$(eventId));
-        allow update: if isValidId(eventId) && isValidId(barcode) && isValidParticipant(incoming()) && (
-          (isAdmin() && incoming().barcode == existing().barcode) ||
-          (
-            isSignedIn() &&
-            incoming().barcode == existing().barcode &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['deliveries']) &&
-            incoming().deliveries.diff(existing().deliveries).removedKeys().size() == 0 &&
-            incoming().deliveries.diff(existing().deliveries).changedKeys().size() == 0 &&
-            incoming().deliveries.diff(existing().deliveries).addedKeys().size() == 1
-          )
-        );
-        allow delete: if isValidId(eventId) && isValidId(barcode) && isAdmin();
+        allow update: if isValidId(eventId) && isValidId(barcode) &&
+          isValidParticipant(incoming()) &&
+          incoming().barcode == existing().barcode &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['deliveries', 'dynamicData', 'searchKeywords']);
+        allow delete: if isValidId(eventId) && isValidId(barcode);
       }
 
       // Immutable activity logs sub-collection
       match /activity_logs/{logId} {
-        allow get: if isValidId(eventId) && isValidId(logId) && isAdmin();
-        allow list: if isAdmin();
-        allow create: if isValidId(eventId) && isValidId(logId) && isValidActivityLog(incoming()) &&
-          exists(/databases/$(database)/documents/events/$(eventId)) && (
-            isAdmin() ||
-            (isSignedIn() && incoming().action == 'delivered')
-          );
+        allow get: if isValidId(eventId) && isValidId(logId);
+        allow list: if isValidId(eventId) &&
+          exists(/databases/$(database)/documents/events/$(eventId));
+        allow create: if isValidId(eventId) && isValidId(logId) &&
+          isValidActivityLog(incoming()) &&
+          exists(/databases/$(database)/documents/events/$(eventId));
         allow update, delete: if false;
       }
     }
 
-    // Organizers collection
+    // Organizers collection (scoped by eventId + magicToken)
     match /organizers/{organizerId} {
-      allow get: if isValidId(organizerId) && (isAdmin() || isSignedIn());
-      allow list: if isAdmin();
-      allow create: if isValidId(organizerId) && isAdmin() && isValidOrganizer(incoming()) &&
+      allow get: if isValidId(organizerId);
+      allow list: if request.query.limit <= 500;
+      allow create: if isValidId(organizerId) && isValidOrganizer(incoming()) &&
+        incoming().id == organizerId &&
         incoming().createdAt == request.time &&
         exists(/databases/$(database)/documents/events/$(incoming().eventId));
-      allow update: if isValidId(organizerId) && isValidOrganizer(incoming()) && (
-        (
-          isAdmin() &&
-          incoming().createdAt == existing().createdAt &&
-          incoming().eventId == existing().eventId &&
-          incoming().magicToken == existing().magicToken &&
-          incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'boothName', 'assignedItems', 'isActive', 'deliveredCount'
-          ])
-        ) ||
-        (
-          isSignedIn() &&
-          existing().isActive == true &&
-          incoming().createdAt == existing().createdAt &&
-          incoming().eventId == existing().eventId &&
-          incoming().magicToken == existing().magicToken &&
-          incoming().diff(existing()).affectedKeys().hasOnly(['deliveredCount']) &&
-          incoming().deliveredCount == existing().deliveredCount + 1
-        )
-      );
-      allow delete: if isValidId(organizerId) && isAdmin();
+      allow update: if isValidId(organizerId) && isValidOrganizer(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().eventId == existing().eventId &&
+        incoming().magicToken == existing().magicToken &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'boothName', 'whatsappPhone', 'assignedItems', 'isActive', 'deliveredCount'
+        ]);
+      allow delete: if isValidId(organizerId);
     }
   }
 }

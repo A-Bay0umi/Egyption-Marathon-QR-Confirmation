@@ -1,0 +1,235 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  adminUndoDelivery,
+  attemptLocalDelivery,
+  autoSuggestColumnMapping,
+  computeEventStats,
+  generateSearchKeywords,
+  matchesSearchQuery,
+  normalizeBarcode,
+} from './marathon-logic';
+import {
+  buildOrganizerMagicUrl,
+  buildOrganizerWhatsAppHref,
+  decodeOrganizerInvite,
+  encodeOrganizerInvite,
+  normalizeWhatsAppPhone,
+  verifyAdminPasscode,
+} from './admin-auth';
+import type { DeliverableItem, MarathonEvent, Organizer, Participant } from './types';
+
+const sampleOrganizer: Organizer = {
+  id: 'org_1',
+  eventId: 'evt_1',
+  name: 'أحمد حسن',
+  boothName: 'بوث A - تيشيرتات',
+  assignedItems: ['tshirt', 'bib'],
+  magicToken: 'TOKEN_A',
+  isActive: true,
+  deliveredCount: 10,
+  createdAt: '2026-11-18T10:00:00Z',
+};
+
+const sampleParticipant: Participant = {
+  barcode: 'SHARM-1042',
+  searchKeywords: generateSearchKeywords(
+    {
+      الاسم: 'علي محمد إبراهيم',
+      'رقم الصدر': '1042',
+      'رقم الموبايل': '01012348891',
+      'مقاس التيشيرت': 'L',
+    },
+    ['الاسم', 'رقم الصدر', 'رقم الموبايل'],
+    'SHARM-1042'
+  ),
+  dynamicData: {
+    الاسم: 'علي محمد إبراهيم',
+    'رقم الصدر': '1042',
+    'رقم الموبايل': '01012348891',
+    'مقاس التيشيرت': 'L',
+  },
+  deliveries: {},
+};
+
+const tshirtItem: DeliverableItem = { id: 'tshirt', name: 'التيشيرت' };
+const bagItem: DeliverableItem = { id: 'bag', name: 'شنطة المتسابق' };
+
+test('normalizeBarcode converts Eastern Arabic digits and strips invalid chars', () => {
+  assert.equal(normalizeBarcode('  ١٠٤٢  '), '1042');
+  assert.equal(normalizeBarcode('SHARM 1042!'), 'SHARM-1042');
+});
+
+test('matchesSearchQuery matches by 3-char Arabic prefix, bib, barcode, and last 4 phone digits', () => {
+  assert.equal(matchesSearchQuery(sampleParticipant, 'علي'), true);
+  assert.equal(matchesSearchQuery(sampleParticipant, '8891'), true);
+  assert.equal(matchesSearchQuery(sampleParticipant, '1042'), true);
+  assert.equal(matchesSearchQuery(sampleParticipant, 'SHARM-1042'), true);
+  assert.equal(matchesSearchQuery(sampleParticipant, '9999'), false);
+});
+
+test('attemptLocalDelivery succeeds for undelivered assigned item and increments counter', () => {
+  const res = attemptLocalDelivery({
+    eventId: 'evt_1',
+    participant: sampleParticipant,
+    organizer: sampleOrganizer,
+    item: tshirtItem,
+    displayFields: ['الاسم', 'مقاس التيشيرت'],
+    nowIso: '2026-11-18T11:00:00Z',
+  });
+
+  assert.equal(res.ok, true);
+  if (res.ok) {
+    assert.equal(res.updatedParticipant.deliveries.tshirt.status, 'delivered');
+    assert.equal(res.updatedParticipant.deliveries.tshirt.deliveredByOrganizerName, 'أحمد حسن');
+    assert.equal(res.updatedOrganizer.deliveredCount, 11);
+    assert.equal(res.logEntry.action, 'delivered');
+    assert.equal(res.logEntry.participantName, 'علي محمد إبراهيم');
+  }
+});
+
+test('attemptLocalDelivery blocks duplicate delivery (anti-fraud check)', () => {
+  const first = attemptLocalDelivery({
+    eventId: 'evt_1',
+    participant: sampleParticipant,
+    organizer: sampleOrganizer,
+    item: tshirtItem,
+    displayFields: ['الاسم'],
+    nowIso: '2026-11-18T11:00:00Z',
+  });
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+
+  const second = attemptLocalDelivery({
+    eventId: 'evt_1',
+    participant: first.updatedParticipant,
+    organizer: first.updatedOrganizer,
+    item: tshirtItem,
+    displayFields: ['الاسم'],
+    nowIso: '2026-11-18T11:05:00Z',
+  });
+  assert.equal(second.ok, false);
+  if (!second.ok) {
+    assert.equal(second.reason, 'already_delivered');
+    assert.equal(second.existingDelivery?.deliveredByOrganizerName, 'أحمد حسن');
+  }
+});
+
+test('attemptLocalDelivery blocks frozen organizer and unassigned item', () => {
+  const frozenRes = attemptLocalDelivery({
+    eventId: 'evt_1',
+    participant: sampleParticipant,
+    organizer: { ...sampleOrganizer, isActive: false },
+    item: tshirtItem,
+    displayFields: ['الاسم'],
+  });
+  assert.equal(frozenRes.ok, false);
+  if (!frozenRes.ok) assert.equal(frozenRes.reason, 'organizer_frozen');
+
+  const unassignedRes = attemptLocalDelivery({
+    eventId: 'evt_1',
+    participant: sampleParticipant,
+    organizer: sampleOrganizer,
+    item: bagItem,
+    displayFields: ['الاسم'],
+  });
+  assert.equal(unassignedRes.ok, false);
+  if (!unassignedRes.ok) assert.equal(unassignedRes.reason, 'unauthorized_item');
+});
+
+test('adminUndoDelivery clears delivery status and records undone audit log', () => {
+  const delivered: Participant = {
+    ...sampleParticipant,
+    deliveries: {
+      tshirt: {
+        status: 'delivered',
+        deliveredByOrganizerId: 'org_1',
+        deliveredByOrganizerName: 'أحمد حسن',
+        deliveredAt: '2026-11-18T11:00:00Z',
+      },
+    },
+  };
+  const { updatedParticipant, logEntry } = adminUndoDelivery({
+    eventId: 'evt_1',
+    participant: delivered,
+    item: tshirtItem,
+    adminName: 'مدير النظام',
+    displayFields: ['الاسم'],
+  });
+  assert.equal(updatedParticipant.deliveries.tshirt, undefined);
+  assert.equal(logEntry.action, 'undone');
+});
+
+test('computeEventStats and autoSuggestColumnMapping return accurate output', () => {
+  const p2: Participant = {
+    ...sampleParticipant,
+    barcode: 'SHARM-1043',
+    deliveries: {
+      tshirt: {
+        status: 'delivered',
+        deliveredByOrganizerId: 'org_1',
+        deliveredByOrganizerName: 'أحمد حسن',
+        deliveredAt: '2026-11-18T11:00:00Z',
+      },
+    },
+  };
+  const stats = computeEventStats([sampleParticipant, p2], [tshirtItem, bagItem]);
+  assert.equal(stats[0].delivered, 1);
+  assert.equal(stats[0].percentage, 50);
+  assert.equal(stats[1].delivered, 0);
+
+  const mapping = autoSuggestColumnMapping([
+    'Barcode',
+    'الاسم الكامل',
+    'رقم الموبايل',
+    'مقاس التيشيرت',
+    'رقم الصدر',
+  ]);
+  assert.equal(mapping.barcodeField, 'Barcode');
+  assert.equal(mapping.searchFields.includes('الاسم الكامل'), true);
+  assert.equal(mapping.displayFields.includes('مقاس التيشيرت'), true);
+});
+
+test('verifyAdminPasscode validates Abdallah@2008 strictly', () => {
+  assert.equal(verifyAdminPasscode('Abdallah@2008'), true);
+  assert.equal(verifyAdminPasscode('  Abdallah@2008  '), true);
+  assert.equal(verifyAdminPasscode('abdallah@2008'), false);
+  assert.equal(verifyAdminPasscode('wrong'), false);
+});
+
+test('normalizeWhatsAppPhone and organizer magic invite round-trip cleanly with Arabic text', () => {
+  assert.equal(normalizeWhatsAppPhone('01012345678'), '201012345678');
+  assert.equal(normalizeWhatsAppPhone('+20 101-234-5678'), '201012345678');
+  assert.equal(normalizeWhatsAppPhone('123'), '');
+
+  const evt: MarathonEvent = {
+    id: 'evt_1',
+    name: 'ماراثون الإسكندرية',
+    date: '2026-12-01',
+    isActive: true,
+    deliverableItems: [tshirtItem, bagItem],
+    displayFields: ['الاسم'],
+    searchFields: ['الاسم'],
+    totalParticipants: 100,
+    ownerUid: 'admin',
+    createdAt: '2026-11-18T10:00:00Z',
+  };
+  const orgWithPhone: Organizer = {
+    ...sampleOrganizer,
+    whatsappPhone: '201012345678',
+  };
+
+  const encoded = encodeOrganizerInvite(orgWithPhone, evt);
+  const decoded = decodeOrganizerInvite(encoded);
+  assert.ok(decoded);
+  assert.equal(decoded?.org.name, 'أحمد حسن');
+  assert.equal(decoded?.org.magicToken, 'TOKEN_A');
+  assert.equal(decoded?.event?.name, 'ماراثون الإسكندرية');
+
+  const url = buildOrganizerMagicUrl('https://example.com', orgWithPhone, evt);
+  assert.equal(url.startsWith('https://example.com/?token=TOKEN_A&invite='), true);
+
+  const waHref = buildOrganizerWhatsAppHref(url, orgWithPhone, evt);
+  assert.equal(waHref.startsWith('https://wa.me/201012345678?text='), true);
+});
+

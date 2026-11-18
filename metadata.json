@@ -1,0 +1,6 @@
+{
+  "name": "موزع مستلزمات الماراثون - Marathon Check-in",
+  "description": "نظام توزيع مستلزمات سباقات الماراثون وفحص الباركود مع دعم العمل بدون إنترنت ومزامنة Google Sheets",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

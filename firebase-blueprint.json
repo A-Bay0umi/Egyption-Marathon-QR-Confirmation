@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "Event": {
+      "title": "Event",
+      "description": "A marathon or race distribution event.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "date": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "isActive": { "type": "boolean" },
+        "deliverableItems": { "type": "array", "description": "Bounded list of deliverable kit items (max 20)." },
+        "displayFields": { "type": "array", "description": "Bounded list of Excel column names displayed to organizers (max 20)." },
+        "displayLabels": { "type": "object", "description": "Optional custom Arabic labels for display fields." },
+        "searchFields": { "type": "array", "description": "Bounded list of fields used for smart fallback search (max 10)." },
+        "totalParticipants": { "type": "integer" },
+        "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "date", "isActive", "deliverableItems", "displayFields", "searchFields", "totalParticipants", "ownerUid", "createdAt"]
+    },
+    "Organizer": {
+      "title": "Organizer",
+      "description": "Race kit distribution booth organizer with assigned items and emergency kill-switch.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "eventId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "boothName": { "type": "string", "maxLength": 120 },
+        "assignedItems": { "type": "array", "description": "List of item IDs this organizer can distribute (max 20)." },
+        "magicToken": { "type": "string", "minLength": 4, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "isActive": { "type": "boolean" },
+        "deliveredCount": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "eventId", "name", "assignedItems", "magicToken", "isActive", "deliveredCount", "createdAt"]
+    },
+    "Participant": {
+      "title": "Participant",
+      "description": "Registered marathon runner with normalized barcode, search keywords, dynamic Excel data, and per-item deliveries.",
+      "type": "object",
+      "properties": {
+        "barcode": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "searchKeywords": { "type": "array", "description": "Lowercase search prefixes and phone suffixes (max 60)." },
+        "dynamicData": { "type": "object", "description": "Mapped spreadsheet row data." },
+        "deliveries": { "type": "object", "description": "Map of itemId to delivery record." }
+      },
+      "required": ["barcode", "searchKeywords", "dynamicData", "deliveries"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Immutable real-time audit log entry for deliveries and admin overrides.",
+      "type": "object",
+      "properties": {
+        "participantName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "barcode": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "itemName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "organizerName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "action": { "type": "string", "enum": ["delivered", "undone"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participantName", "barcode", "itemName", "organizerName", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/Event" },
+      "description": "Top-level marathon events collection."
+    },
+    "/organizers/{organizerId}": {
+      "schema": { "$ref": "#/entities/Organizer" },
+      "description": "Booth organizers keyed by organizer/magic token ID."
+    },
+    "/events/{eventId}/participants/{barcode}": {
+      "schema": { "$ref": "#/entities/Participant" },
+      "description": "Participants sub-collection keyed by normalized barcode."
+    },
+    "/events/{eventId}/activity_logs/{logId}": {
+      "schema": { "$ref": "#/entities/ActivityLog" },
+      "description": "Immutable audit feed of deliveries and admin undo actions."
+    },
+    "/admins/{adminUid}": {
+      "schema": "Admin",
+      "description": "Allowlist of verified admin UIDs."
+    }
+  }
+}

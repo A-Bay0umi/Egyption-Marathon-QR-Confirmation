@@ -1,0 +1,191 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'abdallahbayoumi1@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasAll([
+        'id', 'name', 'date', 'isActive', 'deliverableItems',
+        'displayFields', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'name', 'date', 'isActive', 'deliverableItems',
+        'displayFields', 'displayLabels', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+      data.date is string && data.date.size() >= 1 && data.date.size() <= 40 &&
+      data.isActive is bool &&
+      data.deliverableItems is list && data.deliverableItems.size() <= 20 &&
+      data.displayFields is list && data.displayFields.size() <= 20 &&
+      (!('displayLabels' in data) || data.displayLabels is map) &&
+      data.searchFields is list && data.searchFields.size() <= 10 &&
+      data.totalParticipants is int && data.totalParticipants >= 0 &&
+      data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidOrganizer(data) {
+      return data.keys().hasAll([
+        'id', 'eventId', 'name', 'assignedItems', 'magicToken', 'isActive', 'deliveredCount', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'eventId', 'name', 'boothName', 'assignedItems', 'magicToken', 'isActive', 'deliveredCount', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.eventId) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+      (!('boothName' in data) || (data.boothName is string && data.boothName.size() <= 120)) &&
+      data.assignedItems is list && data.assignedItems.size() <= 20 &&
+      isValidId(data.magicToken) &&
+      data.isActive is bool &&
+      data.deliveredCount is int && data.deliveredCount >= 0 &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidParticipant(data) {
+      return data.keys().hasAll(['barcode', 'searchKeywords', 'dynamicData', 'deliveries']) &&
+      data.keys().hasOnly(['barcode', 'searchKeywords', 'dynamicData', 'deliveries']) &&
+      isValidId(data.barcode) &&
+      data.searchKeywords is list && data.searchKeywords.size() <= 60 &&
+      (data.searchKeywords.size() == 0 || data.searchKeywords[0] is string) &&
+      data.dynamicData is map &&
+      data.deliveries is map;
+    }
+
+    function isValidActivityLog(data) {
+      return data.keys().hasAll(['participantName', 'barcode', 'itemName', 'organizerName', 'action', 'timestamp']) &&
+      data.keys().hasOnly(['participantName', 'barcode', 'itemName', 'organizerName', 'action', 'timestamp']) &&
+      data.participantName is string && data.participantName.size() >= 1 && data.participantName.size() <= 200 &&
+      data.barcode is string && data.barcode.size() >= 1 && data.barcode.size() <= 128 &&
+      data.itemName is string && data.itemName.size() >= 1 && data.itemName.size() <= 120 &&
+      data.organizerName is string && data.organizerName.size() >= 1 && data.organizerName.size() <= 120 &&
+      data.action in ['delivered', 'undone'] &&
+      data.timestamp == request.time;
+    }
+
+    // Admins registry
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && isSignedIn() && (request.auth.uid == adminUid || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // Health check probe doc
+    match /test/connection {
+      allow get: if true;
+      allow list, write: if false;
+    }
+
+    // Events collection
+    match /events/{eventId} {
+      allow get: if isValidId(eventId) && (isAdmin() || existing().isActive == true);
+      allow list: if isAdmin() || existing().isActive == true;
+      allow create: if isValidId(eventId) && isAdmin() && isValidEvent(incoming()) &&
+        incoming().ownerUid == request.auth.uid &&
+        incoming().createdAt == request.time;
+      allow update: if isValidId(eventId) && isAdmin() && isValidEvent(incoming()) &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'date', 'isActive', 'deliverableItems', 'displayFields', 'displayLabels', 'searchFields', 'totalParticipants'
+        ]);
+      allow delete: if isValidId(eventId) && isAdmin();
+
+      // Participants sub-collection
+      match /participants/{barcode} {
+        allow get: if isValidId(eventId) && isValidId(barcode) && (isAdmin() || isSignedIn());
+        allow list: if isAdmin() || (isSignedIn() && existing().barcode is string);
+        allow create: if isValidId(eventId) && isValidId(barcode) && isAdmin() &&
+          isValidParticipant(incoming()) &&
+          incoming().barcode == barcode &&
+          exists(/databases/$(database)/documents/events/$(eventId));
+        allow update: if isValidId(eventId) && isValidId(barcode) && isValidParticipant(incoming()) && (
+          (isAdmin() && incoming().barcode == existing().barcode) ||
+          (
+            isSignedIn() &&
+            incoming().barcode == existing().barcode &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['deliveries']) &&
+            incoming().deliveries.diff(existing().deliveries).removedKeys().size() == 0 &&
+            incoming().deliveries.diff(existing().deliveries).changedKeys().size() == 0 &&
+            incoming().deliveries.diff(existing().deliveries).addedKeys().size() == 1
+          )
+        );
+        allow delete: if isValidId(eventId) && isValidId(barcode) && isAdmin();
+      }
+
+      // Immutable activity logs sub-collection
+      match /activity_logs/{logId} {
+        allow get: if isValidId(eventId) && isValidId(logId) && isAdmin();
+        allow list: if isAdmin();
+        allow create: if isValidId(eventId) && isValidId(logId) && isValidActivityLog(incoming()) &&
+          exists(/databases/$(database)/documents/events/$(eventId)) && (
+            isAdmin() ||
+            (isSignedIn() && incoming().action == 'delivered')
+          );
+        allow update, delete: if false;
+      }
+    }
+
+    // Organizers collection
+    match /organizers/{organizerId} {
+      allow get: if isValidId(organizerId) && (isAdmin() || isSignedIn());
+      allow list: if isAdmin();
+      allow create: if isValidId(organizerId) && isAdmin() && isValidOrganizer(incoming()) &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/events/$(incoming().eventId));
+      allow update: if isValidId(organizerId) && isValidOrganizer(incoming()) && (
+        (
+          isAdmin() &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().eventId == existing().eventId &&
+          incoming().magicToken == existing().magicToken &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'boothName', 'assignedItems', 'isActive', 'deliveredCount'
+          ])
+        ) ||
+        (
+          isSignedIn() &&
+          existing().isActive == true &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().eventId == existing().eventId &&
+          incoming().magicToken == existing().magicToken &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['deliveredCount']) &&
+          incoming().deliveredCount == existing().deliveredCount + 1
+        )
+      );
+      allow delete: if isValidId(organizerId) && isAdmin();
+    }
+  }
+}

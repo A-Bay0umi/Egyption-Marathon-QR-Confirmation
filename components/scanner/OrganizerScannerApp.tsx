@@ -7,7 +7,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertTriangle,
   ArrowRight,
-  Bell,
   Camera,
   CheckCircle2,
   ChevronLeft,
@@ -64,8 +63,8 @@ export const OrganizerScannerApp: React.FC = () => {
   const searchParams = useSearchParams();
   const isOnline = useOnlineStatus();
   const {
-    notificationPermission,
     unlockAudio,
+    vibrateLight,
     playSuccessSound,
     playDuplicateAlertSound,
     playNotFoundSound,
@@ -191,7 +190,7 @@ export const OrganizerScannerApp: React.FC = () => {
 
   const handleActivatePastedInvite = (e: React.FormEvent) => {
     e.preventDefault();
-    void unlockAudio(true);
+    unlockAudio();
     const parsed = parseOrganizerMagicInput(invitePasteInput);
     if (!parsed) {
       setInvitePasteError(
@@ -312,10 +311,6 @@ export const OrganizerScannerApp: React.FC = () => {
       setSearchQuery('');
       setFeedbackBanner(null);
 
-      const displayName = extractParticipantDisplayName(
-        participant,
-        eventData?.displayFields ?? []
-      );
       const allItems = eventData?.deliverableItems ?? [];
       const hasBlockOrDuplicate = activeRoleItems.some((item) => {
         const already = participant.deliveries?.[item.id]?.status === 'delivered';
@@ -323,23 +318,24 @@ export const OrganizerScannerApp: React.FC = () => {
         return already || missingPrereq;
       });
       if (hasBlockOrDuplicate) {
-        playDuplicateAlertSound(`${displayName} (${participant.barcode})`);
+        playDuplicateAlertSound();
       } else {
-        playSuccessSound(`${displayName} (${participant.barcode})`);
+        playSuccessSound();
       }
     },
-    [activeRoleItems, eventData?.deliverableItems, eventData?.displayFields, playDuplicateAlertSound, playSuccessSound]
+    [activeRoleItems, eventData?.deliverableItems, playDuplicateAlertSound, playSuccessSound]
   );
 
   const handleBarcodeScanned = useCallback(
     (rawCode: string) => {
+      vibrateLight();
       const normalized = normalizeBarcode(rawCode);
       const match =
         participants.find((p) => p.barcode.toUpperCase() === normalized.toUpperCase()) ??
         participants.find((p) => matchesSearchQuery(p, rawCode));
 
       if (!match) {
-        playNotFoundSound(`الباركود غير مسجل: ${rawCode}`);
+        playNotFoundSound();
         setSelectedBarcode(null);
         setFeedbackBanner({
           type: 'error',
@@ -350,15 +346,16 @@ export const OrganizerScannerApp: React.FC = () => {
 
       handleSelectParticipant(match);
     },
-    [handleSelectParticipant, participants, playNotFoundSound]
+    [handleSelectParticipant, participants, playNotFoundSound, vibrateLight]
   );
 
   const handleReopenCamera = useCallback(() => {
-    void unlockAudio(true);
+    unlockAudio();
+    vibrateLight();
     setSelectedBarcode(null);
     setFeedbackBanner(null);
     void cameraRef.current?.startCamera();
-  }, [unlockAudio]);
+  }, [unlockAudio, vibrateLight]);
 
   const handleBackToSearch = useCallback(() => {
     setSelectedBarcode(null);
@@ -367,12 +364,8 @@ export const OrganizerScannerApp: React.FC = () => {
 
   const handleConfirmDelivery = async (item: DeliverableItem) => {
     if (!eventData || !organizer || !selectedParticipant) return;
-    void unlockAudio(true);
+    unlockAudio();
     setDeliveringId(item.id);
-    const displayName = extractParticipantDisplayName(
-      selectedParticipant,
-      eventData.displayFields
-    );
     try {
       const result = await commitAtomicDelivery({
         eventId: eventData.id,
@@ -385,27 +378,25 @@ export const OrganizerScannerApp: React.FC = () => {
       });
 
       if (result.ok) {
-        playSuccessSound(`تم تسليم "${item.name}" — ${displayName}`);
+        playSuccessSound();
         setFeedbackBanner({
           type: 'success',
           text: `تم تسليم "${item.name}" بنجاح`,
         });
       } else if (result.reason === 'prerequisite_not_met') {
-        playDuplicateAlertSound(
-          `يلزم إتمام "${result.missingItemName ?? 'الخطوة السابقة'}" قبل "${item.name}"`
-        );
+        playDuplicateAlertSound();
         setFeedbackBanner({
           type: 'warning',
           text: `⛔ لا يمكن تسليم "${item.name}" قبل إتمام "${result.missingItemName ?? 'الخطوة السابقة'}" أولاً!`,
         });
       } else if (result.reason === 'already_delivered') {
-        playDuplicateAlertSound(`تم تسليم "${item.name}" مسبقاً — ${displayName}`);
+        playDuplicateAlertSound();
         setFeedbackBanner({
           type: 'warning',
           text: `تنبيه: تم تسليم "${item.name}" مسبقاً!`,
         });
       } else if (result.reason === 'organizer_frozen') {
-        playNotFoundSound('تم إيقاف صلاحية هذا المنظم');
+        playNotFoundSound();
       }
     } finally {
       setDeliveringId(null);
@@ -414,13 +405,14 @@ export const OrganizerScannerApp: React.FC = () => {
 
   const handleSelectRole = useCallback(
     (roleId: string) => {
-      void unlockAudio(true);
+      unlockAudio();
+      vibrateLight();
       setSelectedRoleId(roleId);
       setSelectedBarcode(null);
       setFeedbackBanner(null);
       setSearchQuery('');
     },
-    [unlockAudio]
+    [unlockAudio, vibrateLight]
   );
 
   const handleReturnToRolePicker = useCallback(() => {
@@ -668,18 +660,6 @@ export const OrganizerScannerApp: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {notificationPermission === 'default' && (
-              <button
-                type="button"
-                onClick={() => void unlockAudio(true)}
-                aria-label="تفعيل صوت الإشعارات"
-                title="تفعيل صوت الإشعارات والصوت المزدوج"
-                className="inline-flex items-center justify-center gap-1 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-2 text-xs font-bold text-amber-800 dark:text-amber-300 min-h-[42px] whitespace-nowrap"
-              >
-                <Bell className="w-4 h-4 shrink-0" />
-                <span className="hidden sm:inline">تفعيل التنبيه</span>
-              </button>
-            )}
             <PWAInstallButton compact />
             {adminLoggedIn && (
               <Link
@@ -824,7 +804,7 @@ export const OrganizerScannerApp: React.FC = () => {
               ref={cameraRef}
               onScan={handleBarcodeScanned}
               autoStopOnScan
-              onUserGesture={() => void unlockAudio(true)}
+              onUserGesture={unlockAudio}
             />
 
             <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-3 sm:p-4">
@@ -873,7 +853,7 @@ export const OrganizerScannerApp: React.FC = () => {
                           key={p.barcode}
                           type="button"
                           onClick={() => {
-                            void unlockAudio(true);
+                            unlockAudio();
                             handleSelectParticipant(p);
                           }}
                           className="w-full text-right px-4 py-3 hover:bg-emerald-50 dark:hover:bg-neutral-900 transition-colors flex items-center justify-between gap-3 min-h-[56px]"
@@ -986,9 +966,9 @@ export const OrganizerScannerApp: React.FC = () => {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.16 }}
                     data-testid="participant-full-card"
-                    className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-6 shadow-sm space-y-4 min-h-[calc(100vh-230px)] flex flex-col justify-between"
+                    className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 shadow-sm space-y-4"
                   >
-                    <div className="space-y-4">
+                    <div className="space-y-3.5">
                     <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-neutral-800">
                       <div className="min-w-0">
                         <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">

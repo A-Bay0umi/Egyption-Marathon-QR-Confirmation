@@ -7,6 +7,8 @@ export const ORGANIZER_SESSION_STORAGE_KEY = 'marathon_organizer_session_v1';
 export interface SavedOrganizerSession {
   eventId: string;
   token: string;
+  orgName?: string;
+  whatsappPhone?: string;
 }
 
 export function verifyAdminPasscode(input: string): boolean {
@@ -29,8 +31,20 @@ export function readOrganizerSessionLocally(): SavedOrganizerSession | null {
     const raw = window.localStorage.getItem(ORGANIZER_SESSION_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<SavedOrganizerSession>;
-    if (parsed && typeof parsed.eventId === 'string' && typeof parsed.token === 'string' && parsed.eventId && parsed.token) {
-      return { eventId: parsed.eventId, token: parsed.token };
+    if (
+      parsed &&
+      typeof parsed.eventId === 'string' &&
+      typeof parsed.token === 'string' &&
+      parsed.eventId &&
+      parsed.token
+    ) {
+      return {
+        eventId: parsed.eventId,
+        token: parsed.token,
+        orgName: typeof parsed.orgName === 'string' ? parsed.orgName : undefined,
+        whatsappPhone:
+          typeof parsed.whatsappPhone === 'string' ? parsed.whatsappPhone : undefined,
+      };
     }
     return null;
   } catch {

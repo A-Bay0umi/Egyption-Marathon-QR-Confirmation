@@ -12,25 +12,32 @@ interface ToneSegment {
   gain: number;
 }
 
-// High-clarity, normalized tone patterns designed to remain clear even at low media volume
-const TONE_PATTERNS: Record<ToneKind, ToneSegment[]> = {
+// 1) Normal Media Beep (HTML5 <audio> PCM WAV): plays ONLY in [0.00s -> 0.085s]
+const NORMAL_BEEP_SEGMENTS: Record<ToneKind, ToneSegment[]> = {
+  success: [{ freq: 880, startSec: 0, durationSec: 0.085, wave: 'sine', gain: 0.85 }],
+  duplicate: [{ freq: 320, startSec: 0, durationSec: 0.11, wave: 'sawtooth', gain: 0.78 }],
+  notFound: [{ freq: 260, startSec: 0, durationSec: 0.095, wave: 'triangle', gain: 0.82 }],
+};
+
+// 2) Notification-Style Bell Chime (Web Audio API): starts AFTER a clean gap (>= 0.135s), ZERO overlap!
+const NOTIFICATION_CHIME_SEGMENTS: Record<ToneKind, ToneSegment[]> = {
   success: [
-    { freq: 880, startSec: 0, durationSec: 0.1, wave: 'sine', gain: 0.85 },
-    { freq: 1175, startSec: 0.11, durationSec: 0.17, wave: 'sine', gain: 0.9 },
+    { freq: 1568, startSec: 0.135, durationSec: 0.085, wave: 'sine', gain: 0.82 },
+    { freq: 2093, startSec: 0.225, durationSec: 0.14, wave: 'sine', gain: 0.88 },
   ],
   duplicate: [
-    { freq: 340, startSec: 0, durationSec: 0.2, wave: 'sawtooth', gain: 0.78 },
-    { freq: 220, startSec: 0.22, durationSec: 0.26, wave: 'sawtooth', gain: 0.82 },
+    { freq: 440, startSec: 0.155, durationSec: 0.12, wave: 'triangle', gain: 0.84 },
+    { freq: 294, startSec: 0.285, durationSec: 0.18, wave: 'triangle', gain: 0.86 },
   ],
   notFound: [
-    { freq: 300, startSec: 0, durationSec: 0.12, wave: 'triangle', gain: 0.82 },
-    { freq: 190, startSec: 0.14, durationSec: 0.18, wave: 'triangle', gain: 0.85 },
+    { freq: 392, startSec: 0.145, durationSec: 0.1, wave: 'sine', gain: 0.8 },
+    { freq: 247, startSec: 0.255, durationSec: 0.15, wave: 'sine', gain: 0.84 },
   ],
 };
 
 function buildWavBlobUrl(segments: ToneSegment[]): string {
   const sampleRate = 22050;
-  const totalSec = Math.max(...segments.map((s) => s.startSec + s.durationSec)) + 0.04;
+  const totalSec = Math.max(...segments.map((s) => s.startSec + s.durationSec)) + 0.025;
   const numSamples = Math.ceil(totalSec * sampleRate);
   const buffer = new ArrayBuffer(44 + numSamples * 2);
   const view = new DataView(buffer);
@@ -61,8 +68,8 @@ function buildWavBlobUrl(segments: ToneSegment[]): string {
     for (const seg of segments) {
       if (t >= seg.startSec && t <= seg.startSec + seg.durationSec) {
         const localT = t - seg.startSec;
-        const attack = Math.min(1, localT / 0.01);
-        const release = Math.min(1, (seg.durationSec - localT) / 0.02);
+        const attack = Math.min(1, localT / 0.008);
+        const release = Math.min(1, (seg.durationSec - localT) / 0.018);
         const env = attack * release;
         const phase = (localT * seg.freq) % 1;
         let osc = 0;
@@ -98,10 +105,17 @@ export function useWebAudio() {
   const ctxRef = useRef<AudioContext | null>(null);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
   const wavUrlsRef = useRef<Partial<Record<ToneKind, string>>>({});
+  const activeHtmlAudioRef = useRef<HTMLAudioElement | null>(null);
+  const activeOscsRef = useRef<OscillatorNode[]>([]);
 
   useEffect(() => {
     const urls = wavUrlsRef.current;
     return () => {
+      try {
+        activeHtmlAudioRef.current?.pause();
+      } catch {
+        // Ignore cleanup errors
+      }
       Object.values(urls).forEach((url) => {
         if (url) URL.revokeObjectURL(url);
       });
@@ -146,12 +160,11 @@ export function useWebAudio() {
   const ensureWavUrl = useCallback((kind: ToneKind): string | null => {
     if (typeof window === 'undefined') return null;
     if (!wavUrlsRef.current[kind]) {
-      wavUrlsRef.current[kind] = buildWavBlobUrl(TONE_PATTERNS[kind]);
+      wavUrlsRef.current[kind] = buildWavBlobUrl(NORMAL_BEEP_SEGMENTS[kind]);
     }
     return wavUrlsRef.current[kind] ?? null;
   }, []);
 
-  // Unlock AudioContext & HTML5 Media audio inside user gesture (no OS notifications requested)
   const unlockAudio = useCallback(() => {
     try {
       getContextAndMaster();
@@ -163,38 +176,59 @@ export function useWebAudio() {
     }
   }, [ensureWavUrl, getContextAndMaster]);
 
-  // Light haptic pulse when capturing a barcode/photo
   const vibrateLight = useCallback(() => {
     triggerHaptic(30);
   }, []);
 
-  // Play crisp media sound (bypasses hardware silent/ringer switch when media volume > 0) + light haptic
-  const triggerSoundAndHaptic = useCallback(
+  // Sequenced non-overlapping sound:
+  // Step A (0ms): Normal Media scanner beep (HTMLAudioElement)
+  // Step B (135ms+): Distinct notification-style bell chime (Web Audio + Compressor)
+  // No OS notification banner is ever created.
+  const triggerSeparatedAudio = useCallback(
     (kind: ToneKind, vibratePattern: number | number[]) => {
-      // 1. Light crisp haptic feedback
       triggerHaptic(vibratePattern);
 
-      // 2. HTML5 <audio> Media channel (plays even if phone ringer switch is on Silent)
+      // Stop any in-flight prior sound cleanly so rapid scans never overlap
+      try {
+        if (activeHtmlAudioRef.current) {
+          activeHtmlAudioRef.current.pause();
+          activeHtmlAudioRef.current.currentTime = 0;
+        }
+        activeOscsRef.current.forEach((osc) => {
+          try {
+            osc.stop();
+          } catch {
+            // Already stopped
+          }
+        });
+        activeOscsRef.current = [];
+      } catch {
+        // Ignore cleanup errors
+      }
+
+      // 1. Normal Media Scanner Beep (plays immediately at t=0)
       try {
         const url = ensureWavUrl(kind);
         if (url) {
           const audio = new Audio(url);
           audio.volume = 1.0;
+          activeHtmlAudioRef.current = audio;
           void audio.play().catch(() => {
-            // Autoplay blocked before gesture; Web Audio handles below once unlocked
+            // Autoplay blocked before first gesture
           });
         }
       } catch {
-        // Ignore HTML5 Audio errors
+        // Ignore HTMLAudioElement errors
       }
 
-      // 3. Web Audio synthesis through DynamicsCompressor for boosted clarity even at low phone volume
+      // 2. Notification-Style Chime (starts after clean gap at t>=135ms — zero overlap!)
       try {
         const audioNodes = getContextAndMaster();
         if (audioNodes) {
           const { ctx, destination } = audioNodes;
           const now = ctx.currentTime;
-          for (const seg of TONE_PATTERNS[kind]) {
+          const startedOscs: OscillatorNode[] = [];
+          for (const seg of NOTIFICATION_CHIME_SEGMENTS[kind]) {
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = seg.wave;
@@ -206,7 +240,9 @@ export function useWebAudio() {
             gain.connect(destination);
             osc.start(now + seg.startSec);
             osc.stop(now + seg.startSec + seg.durationSec + 0.02);
+            startedOscs.push(osc);
           }
+          activeOscsRef.current = startedOscs;
         }
       } catch {
         // Ignore Web Audio errors
@@ -216,16 +252,16 @@ export function useWebAudio() {
   );
 
   const playSuccessSound = useCallback(() => {
-    triggerSoundAndHaptic('success', [35, 30, 45]);
-  }, [triggerSoundAndHaptic]);
+    triggerSeparatedAudio('success', [35, 30, 45]);
+  }, [triggerSeparatedAudio]);
 
   const playDuplicateAlertSound = useCallback(() => {
-    triggerSoundAndHaptic('duplicate', [60, 40, 60]);
-  }, [triggerSoundAndHaptic]);
+    triggerSeparatedAudio('duplicate', [60, 40, 60]);
+  }, [triggerSeparatedAudio]);
 
   const playNotFoundSound = useCallback(() => {
-    triggerSoundAndHaptic('notFound', [45, 35, 45]);
-  }, [triggerSoundAndHaptic]);
+    triggerSeparatedAudio('notFound', [45, 35, 45]);
+  }, [triggerSeparatedAudio]);
 
   return {
     unlockAudio,

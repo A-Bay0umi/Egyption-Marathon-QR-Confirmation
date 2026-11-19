@@ -11,7 +11,9 @@ import {
   CheckCircle2,
   ChevronLeft,
   ClipboardList,
+  Clock,
   Link2,
+  Lock,
   Moon,
   Search,
   Shield,
@@ -32,6 +34,7 @@ import { useWebAudio } from '@/hooks/useWebAudio';
 import {
   clearOrganizerSessionLocally,
   isAdminSavedLocally,
+  normalizeWhatsAppPhone,
   parseOrganizerMagicInput,
   readOrganizerSessionLocally,
   saveOrganizerSessionLocally,
@@ -40,6 +43,7 @@ import {
 import { testFirestoreConnection } from '@/lib/firebase';
 import {
   commitAtomicDelivery,
+  subscribeActiveEvent,
   subscribeEventOrganizers,
   subscribeEventParticipants,
   subscribeOrganizerByToken,
@@ -48,7 +52,9 @@ import {
 import {
   countEligibleForItem,
   extractParticipantDisplayName,
+  formatArabicDateTime,
   formatArabicTime,
+  getEventRegistrationState,
   getPrerequisiteItem,
   isPrerequisiteMet,
   matchesSearchQuery,
@@ -85,7 +91,9 @@ export const OrganizerScannerApp: React.FC = () => {
   const lastTapAtRef = useRef(0);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Live Firestore data for the organizer's assigned event
+  // Live Firestore data for the organizer's assigned event & current active event
+  const [activeEvent, setActiveEvent] = useState<MarathonEvent | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [eventData, setEventData] = useState<MarathonEvent | null>(null);
   const [eventLoaded, setEventLoaded] = useState(false);
   const [organizer, setOrganizer] = useState<Organizer | null>(null);
@@ -129,29 +137,60 @@ export const OrganizerScannerApp: React.FC = () => {
     });
   }, [searchParams]);
 
-  // Subscribe to Firebase Firestore for this specific event & organizer token
+  // Refresh local clock every 15s so scheduled open/close windows apply automatically
   useEffect(() => {
-    if (!session) return;
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
 
-    const unsubEvent = subscribeSingleEvent(session.eventId, (ev) => {
+  // Always track which marathon event is currently marked active ("شغال الآن")
+  useEffect(() => {
+    if (!sessionReady) return;
+    const unsub = subscribeActiveEvent((ev) => {
+      setActiveEvent(ev);
+    });
+    return () => unsub();
+  }, [sessionReady]);
+
+  // Subscribe to Firebase Firestore for this specific event & organizer token
+  const sessionEventId = session?.eventId ?? '';
+  const sessionToken = session?.token ?? '';
+
+  useEffect(() => {
+    if (!sessionEventId || !sessionToken) return;
+
+    const persistProfileLocally = (org: Organizer) => {
+      saveOrganizerSessionLocally({
+        eventId: sessionEventId,
+        token: sessionToken,
+        orgName: org.name,
+        whatsappPhone: org.whatsappPhone,
+      });
+    };
+
+    const unsubEvent = subscribeSingleEvent(sessionEventId, (ev) => {
       setEventData(ev);
       setEventLoaded(true);
     });
 
-    const unsubOrg = subscribeOrganizerByToken(session.eventId, session.token, (org) => {
+    const unsubOrg = subscribeOrganizerByToken(sessionEventId, sessionToken, (org) => {
       setOrganizer(org);
       setOrganizerLoaded(true);
+      if (org) persistProfileLocally(org);
     });
 
-    const unsubOrgFallback = subscribeEventOrganizers(session.eventId, (list) => {
-      const found = list.find((o) => o.magicToken === session.token) ?? null;
+    const unsubOrgFallback = subscribeEventOrganizers(sessionEventId, (list) => {
+      const found = list.find((o) => o.magicToken === sessionToken) ?? null;
       if (found) {
         setOrganizer(found);
         setOrganizerLoaded(true);
+        persistProfileLocally(found);
       }
     });
 
-    const unsubParticipants = subscribeEventParticipants(session.eventId, setParticipants);
+    const unsubParticipants = subscribeEventParticipants(sessionEventId, setParticipants);
 
     return () => {
       unsubEvent();
@@ -159,7 +198,78 @@ export const OrganizerScannerApp: React.FC = () => {
       unsubOrgFallback();
       unsubParticipants();
     };
-  }, [session]);
+  }, [sessionEventId, sessionToken]);
+
+  // Auto-route organizer into the currently active event ("شغال الآن") whenever it switches
+  const activeEventId = activeEvent?.id ?? '';
+  const savedOrgName = organizer?.name ?? session?.orgName ?? '';
+  const savedOrgPhone = organizer?.whatsappPhone ?? session?.whatsappPhone ?? '';
+
+  useEffect(() => {
+    if (!activeEventId || !sessionEventId || activeEventId === sessionEventId) {
+      return;
+    }
+
+    const unsub = subscribeEventOrganizers(activeEventId, (activeOrgs) => {
+      let matchedOrg = activeOrgs.find((o) => o.magicToken === sessionToken);
+
+      if (!matchedOrg && savedOrgPhone) {
+        const cleanPhone = normalizeWhatsAppPhone(savedOrgPhone);
+        if (cleanPhone) {
+          matchedOrg = activeOrgs.find(
+            (o) => normalizeWhatsAppPhone(o.whatsappPhone || '') === cleanPhone
+          );
+        }
+      }
+
+      if (!matchedOrg && savedOrgName.trim()) {
+        const cleanName = savedOrgName.trim();
+        const byName = activeOrgs.filter((o) => o.name.trim() === cleanName);
+        if (byName.length === 1) {
+          matchedOrg = byName[0];
+        }
+      }
+
+      if (matchedOrg) {
+        const nextSession: SavedOrganizerSession = {
+          eventId: activeEventId,
+          token: matchedOrg.magicToken,
+          orgName: matchedOrg.name,
+          whatsappPhone: matchedOrg.whatsappPhone,
+        };
+        saveOrganizerSessionLocally(nextSession);
+        setEventLoaded(false);
+        setOrganizerLoaded(false);
+        setSelectedRoleId(null);
+        setSelectedBarcode(null);
+        setFeedbackBanner(null);
+        setSearchQuery('');
+        setSession(nextSession);
+        if (typeof window !== 'undefined' && window.location.search) {
+          window.history.replaceState({}, '', '/');
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [activeEventId, sessionEventId, sessionToken, savedOrgName, savedOrgPhone]);
+
+  const regState = useMemo(() => {
+    if (!eventData) return null;
+    return getEventRegistrationState(eventData, nowMs);
+  }, [eventData, nowMs]);
+
+  const activeEventRegState = useMemo(() => {
+    if (!activeEvent) return null;
+    return getEventRegistrationState(activeEvent, nowMs);
+  }, [activeEvent, nowMs]);
+
+  const isEventRegOpen = regState ? regState.isOpen : true;
+  useEffect(() => {
+    if (!isEventRegOpen) {
+      void cameraRef.current?.stopCamera();
+    }
+  }, [isEventRegOpen]);
 
   const handleSecretAdminTap = useCallback(() => {
     const now = Date.now();
@@ -504,6 +614,17 @@ export const OrganizerScannerApp: React.FC = () => {
               <p className="mt-2.5 text-sm text-slate-600 dark:text-neutral-300 leading-relaxed">
                 افتح الرابط المرسل لك على واتساب، أو الصق الرابط / كود التفعيل هنا إذا قمت بتثبيت التطبيق على هاتفك.
               </p>
+              {activeEvent && activeEventRegState && (
+                <div
+                  className={`mt-3 rounded-xl border px-3.5 py-2 text-xs font-bold ${
+                    activeEventRegState.isOpen
+                      ? 'border-emerald-200 dark:border-emerald-900 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300'
+                      : 'border-amber-200 dark:border-amber-900 bg-amber-50/70 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300'
+                  }`}
+                >
+                  الإيفنت الشغال الآن: {activeEvent.name} · {activeEventRegState.label}
+                </div>
+              )}
             </div>
 
             {/* Paste WhatsApp link or activation code inside standalone installed PWA */}
@@ -604,6 +725,120 @@ export const OrganizerScannerApp: React.FC = () => {
             )}
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // Event Registration Schedule / Closed Gate
+  if (regState && !regState.isOpen) {
+    const isScheduledWaiting = regState.reason === 'not_opened_yet';
+    const isEnded = regState.reason === 'ended';
+    const switchedNotice =
+      regState.reason === 'inactive' && activeEvent && activeEvent.id !== eventData.id;
+
+    return (
+      <div
+        data-testid="event-closed-gate"
+        className="min-h-screen bg-slate-50 dark:bg-black flex flex-col justify-between p-4 sm:p-6"
+      >
+        <header className="max-w-lg w-full mx-auto flex items-center justify-between gap-3 py-2">
+          <button
+            type="button"
+            aria-label="EM QR"
+            onClick={handleSecretAdminTap}
+            onTouchStart={handleSecretLongPressStart}
+            onTouchEnd={handleSecretLongPressEnd}
+            onMouseDown={handleSecretLongPressStart}
+            onMouseUp={handleSecretLongPressEnd}
+            onMouseLeave={handleSecretLongPressEnd}
+            className="select-none text-right cursor-default"
+          >
+            <BrandLogo size={40} showSubtitle />
+          </button>
+          <div className="flex items-center gap-2">
+            {adminLoggedIn && (
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-black px-3.5 py-2 text-xs font-bold min-h-[42px]"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span>لوحة الإدارة</span>
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={toggleDarkMode}
+              aria-label="تبديل تباين الشمس"
+              className="p-2.5 rounded-xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 text-slate-800 dark:text-white min-h-[44px] min-w-[44px] flex items-center justify-center"
+            >
+              {darkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5" />}
+            </button>
+          </div>
+        </header>
+
+        <main className="max-w-lg w-full mx-auto my-auto py-6">
+          <div className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 sm:p-8 shadow-sm text-center space-y-5">
+            <div
+              className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto ${
+                isScheduledWaiting
+                  ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400'
+                  : 'bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-400'
+              }`}
+            >
+              {isScheduledWaiting ? <Clock className="w-8 h-8" /> : <Lock className="w-8 h-8" />}
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                {eventData.name} · {organizer.name}
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-white leading-snug">
+                {isEnded ? 'تم إغلاق التسجيل' : 'لم يفتح التسجيل بعد'}
+              </h1>
+              <p className="text-sm text-slate-600 dark:text-neutral-300 leading-relaxed">
+                {isScheduledWaiting
+                  ? 'تسجيل هذا الإيفنت لم يفتح بعد حسب الموعد المحدد من الإدارة، وستفتح شاشة المسح تلقائياً بمجرد بدء الموعد.'
+                  : isEnded
+                  ? 'انتهى الوقت المحدد لاستقبال وتسليم المتسابقين في هذا الإيفنت.'
+                  : switchedNotice
+                  ? `الإيفنت الشغال حالياً هو "${activeEvent.name}". إذا لم ينتقل حسابك تلقائياً فاطلب رابط الإيفنت الجديد من المشرف.`
+                  : 'التسجيل مغلق مؤقتاً من قِبل الإدارة — لم يفتح التسجيل بعد.'}
+              </p>
+            </div>
+
+            {(eventData.registrationOpensAt || eventData.registrationClosesAt) && (
+              <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black p-4 text-xs sm:text-sm space-y-1.5 text-slate-700 dark:text-neutral-200">
+                {eventData.registrationOpensAt && (
+                  <div>
+                    <span className="font-bold">موعد الفتح: </span>
+                    <span>{formatArabicDateTime(eventData.registrationOpensAt)}</span>
+                  </div>
+                )}
+                {eventData.registrationClosesAt && (
+                  <div>
+                    <span className="font-bold">موعد الإغلاق: </span>
+                    <span>{formatArabicDateTime(eventData.registrationClosesAt)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleClearSession}
+              className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900 hover:bg-slate-100 dark:hover:bg-neutral-800 text-slate-800 dark:text-white font-bold py-3 px-4 min-h-[48px] text-sm"
+            >
+              مسح الجلسة المحفوظة من الهاتف
+            </button>
+          </div>
+        </main>
+
+        <footer
+          onClick={handleSecretAdminTap}
+          className="max-w-lg w-full mx-auto text-center text-xs text-slate-500 dark:text-neutral-500 py-2 select-none"
+        >
+          تتحدث الحالة تلقائياً عند فتح التسجيل
+        </footer>
       </div>
     );
   }

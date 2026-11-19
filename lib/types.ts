@@ -16,6 +16,9 @@ export interface MarathonEvent {
   name: string;
   date: string;
   isActive: boolean;
+  registrationStatus?: 'auto' | 'open' | 'closed';
+  registrationOpensAt?: string;
+  registrationClosesAt?: string;
   deliverableItems: DeliverableItem[];
   displayFields: string[];
   displayLabels?: Record<string, string>;

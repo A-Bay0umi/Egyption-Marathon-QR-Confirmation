@@ -3,6 +3,7 @@
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
   getDocs,
   increment,
@@ -42,11 +43,27 @@ function toIsoString(val: unknown): string {
 }
 
 function mapEventDoc(id: string, data: Record<string, unknown>): MarathonEvent {
+  const regStatus =
+    data.registrationStatus === 'auto' ||
+    data.registrationStatus === 'open' ||
+    data.registrationStatus === 'closed'
+      ? data.registrationStatus
+      : undefined;
+
   return {
     id: String(data.id ?? id),
     name: String(data.name ?? ''),
     date: String(data.date ?? ''),
     isActive: Boolean(data.isActive),
+    registrationStatus: regStatus,
+    registrationOpensAt:
+      typeof data.registrationOpensAt === 'string' && data.registrationOpensAt
+        ? data.registrationOpensAt
+        : undefined,
+    registrationClosesAt:
+      typeof data.registrationClosesAt === 'string' && data.registrationClosesAt
+        ? data.registrationClosesAt
+        : undefined,
     deliverableItems: Array.isArray(data.deliverableItems)
       ? (data.deliverableItems as DeliverableItem[])
       : [],
@@ -113,6 +130,16 @@ export function subscribeEvents(
       else handleFirestoreError(err, OperationType.LIST, 'events');
     }
   );
+}
+
+export function subscribeActiveEvent(
+  onActiveEvent: (event: MarathonEvent | null) => void,
+  onError?: (err: Error) => void
+): Unsubscribe {
+  return subscribeEvents((list) => {
+    const active = list.find((ev) => ev.isActive) ?? null;
+    onActiveEvent(active);
+  }, onError);
 }
 
 export function subscribeSingleEvent(
@@ -268,6 +295,9 @@ export async function createEventDoc(params: {
   deliverableItems: DeliverableItem[];
   setAsActive: boolean;
   existingEvents: MarathonEvent[];
+  registrationStatus?: 'auto' | 'open' | 'closed';
+  registrationOpensAt?: string;
+  registrationClosesAt?: string;
 }): Promise<string> {
   const { db } = getFirebaseServices();
   const id = `evt_${Date.now().toString(36)}`;
@@ -281,7 +311,7 @@ export async function createEventDoc(params: {
     }
   }
 
-  batch.set(doc(db, 'events', id), {
+  const eventPayload: Record<string, unknown> = {
     id,
     name: params.name.trim(),
     date: params.date.trim() || new Date().toISOString().slice(0, 10),
@@ -292,7 +322,19 @@ export async function createEventDoc(params: {
     totalParticipants: 0,
     ownerUid: 'admin',
     createdAt: serverTimestamp(),
-  });
+  };
+
+  if (params.registrationStatus) {
+    eventPayload.registrationStatus = params.registrationStatus;
+  }
+  if (params.registrationOpensAt) {
+    eventPayload.registrationOpensAt = params.registrationOpensAt;
+  }
+  if (params.registrationClosesAt) {
+    eventPayload.registrationClosesAt = params.registrationClosesAt;
+  }
+
+  batch.set(doc(db, 'events', id), eventPayload);
 
   try {
     await batch.commit();
@@ -323,14 +365,35 @@ export async function updateEventDoc(
   patch: Partial<
     Pick<
       MarathonEvent,
-      'name' | 'date' | 'deliverableItems' | 'displayFields' | 'displayLabels' | 'searchFields' | 'totalParticipants'
+      | 'name'
+      | 'date'
+      | 'deliverableItems'
+      | 'displayFields'
+      | 'displayLabels'
+      | 'searchFields'
+      | 'totalParticipants'
+      | 'registrationStatus'
+      | 'registrationOpensAt'
+      | 'registrationClosesAt'
     >
   >
 ): Promise<void> {
   const { db } = getFirebaseServices();
-  const cleanPatch = { ...patch };
+  const cleanPatch: Record<string, unknown> = { ...patch };
   if (cleanPatch.deliverableItems) {
-    cleanPatch.deliverableItems = sanitizeDeliverableItems(cleanPatch.deliverableItems);
+    cleanPatch.deliverableItems = sanitizeDeliverableItems(
+      cleanPatch.deliverableItems as DeliverableItem[]
+    );
+  }
+  if ('registrationOpensAt' in patch) {
+    cleanPatch.registrationOpensAt = patch.registrationOpensAt
+      ? patch.registrationOpensAt
+      : deleteField();
+  }
+  if ('registrationClosesAt' in patch) {
+    cleanPatch.registrationClosesAt = patch.registrationClosesAt
+      ? patch.registrationClosesAt
+      : deleteField();
   }
   try {
     await updateDoc(doc(db, 'events', eventId), cleanPatch);

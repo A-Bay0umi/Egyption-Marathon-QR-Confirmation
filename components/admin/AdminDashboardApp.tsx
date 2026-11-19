@@ -34,6 +34,10 @@ import {
   subscribeEventParticipants,
   subscribeEvents,
 } from '@/lib/firestore-store';
+import {
+  fromDateTimeLocalValue,
+  getEventRegistrationState,
+} from '@/lib/marathon-logic';
 import type { ActivityLog, DeliverableItem, MarathonEvent, Organizer, Participant } from '@/lib/types';
 
 type EventTab = 'tasks' | 'settings' | 'people';
@@ -60,6 +64,8 @@ export const AdminDashboardApp: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDate, setNewDate] = useState('');
+  const [newOpensAt, setNewOpensAt] = useState('');
+  const [newClosesAt, setNewClosesAt] = useState('');
   const [newTaskInput, setNewTaskInput] = useState('');
   const [newTasks, setNewTasks] = useState<DeliverableItem[]>([]);
   const [chainNewTasks, setChainNewTasks] = useState(false);
@@ -164,8 +170,13 @@ export const AdminDashboardApp: React.FC = () => {
         deliverableItems: preparedTasks,
         setAsActive: setAsActiveOnCreate || events.length === 0,
         existingEvents: events,
+        registrationStatus: 'auto',
+        registrationOpensAt: fromDateTimeLocalValue(newOpensAt) || undefined,
+        registrationClosesAt: fromDateTimeLocalValue(newClosesAt) || undefined,
       });
       setNewName('');
+      setNewOpensAt('');
+      setNewClosesAt('');
       setNewTasks([]);
       setNewTaskInput('');
       setChainNewTasks(false);
@@ -239,7 +250,10 @@ export const AdminDashboardApp: React.FC = () => {
               </h1>
               {selectedEvent ? (
                 <div className="text-xs text-slate-500 dark:text-neutral-400 truncate font-mono-num">
-                  {selectedEvent.date} · {selectedEvent.isActive ? 'الإيفنت الشغال حالياً' : 'غير مفعّل'}
+                  {selectedEvent.date} ·{' '}
+                  {selectedEvent.isActive
+                    ? `شغال الآن · ${getEventRegistrationState(selectedEvent).label}`
+                    : 'غير مفعّل'}
                 </div>
               ) : (
                 <div dir="ltr" className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 truncate text-right">
@@ -337,7 +351,9 @@ export const AdminDashboardApp: React.FC = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {events.map((ev) => (
+                {events.map((ev) => {
+                  const regState = getEventRegistrationState(ev);
+                  return (
                   <div
                     key={ev.id}
                     data-testid={`event-card-${ev.id}`}
@@ -353,9 +369,17 @@ export const AdminDashboardApp: React.FC = () => {
                           {ev.name}
                         </h3>
                         {ev.isActive && (
-                          <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 dark:text-emerald-400 shrink-0 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-bold shrink-0 whitespace-nowrap ${
+                              regState.isOpen
+                                ? 'text-emerald-700 dark:text-emerald-400'
+                                : 'text-amber-700 dark:text-amber-400'
+                            }`}
+                          >
                             <CheckCircle2 className="w-4 h-4" />
-                            <span>شغال الآن</span>
+                            <span>
+                              {regState.isOpen ? 'شغال الآن' : `شغال الآن · ${regState.label}`}
+                            </span>
                           </span>
                         )}
                       </div>
@@ -396,7 +420,8 @@ export const AdminDashboardApp: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -458,6 +483,7 @@ export const AdminDashboardApp: React.FC = () => {
 
             {activeTab === 'settings' && (
               <EventSettingsOrganizersTab
+                key={selectedEvent.id}
                 event={selectedEvent}
                 organizers={eventOrganizers}
               />
@@ -524,6 +550,41 @@ export const AdminDashboardApp: React.FC = () => {
                   onChange={(e) => setNewDate(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
                 />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label
+                    htmlFor="new-event-opens-at"
+                    className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
+                  >
+                    موعد الفتح (اختياري)
+                  </label>
+                  <input
+                    id="new-event-opens-at"
+                    type="datetime-local"
+                    dir="ltr"
+                    value={newOpensAt}
+                    onChange={(e) => setNewOpensAt(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[42px]"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="new-event-closes-at"
+                    className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
+                  >
+                    موعد الإغلاق (اختياري)
+                  </label>
+                  <input
+                    id="new-event-closes-at"
+                    type="datetime-local"
+                    dir="ltr"
+                    value={newClosesAt}
+                    onChange={(e) => setNewClosesAt(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[42px]"
+                  />
+                </div>
               </div>
 
               <div>

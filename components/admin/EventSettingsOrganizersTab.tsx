@@ -4,11 +4,13 @@ import React, { useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  CalendarClock,
   Check,
   Copy,
   Edit3,
   Link2,
   ListChecks,
+  Lock,
   MessageCircle,
   MessageSquareText,
   Phone,
@@ -16,6 +18,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Trash2,
+  Unlock,
   Unlink,
   UserPlus,
   X,
@@ -32,7 +35,13 @@ import {
   updateEventDoc,
   updateOrganizerDoc,
 } from '@/lib/firestore-store';
-import { wouldCreateDependencyCycle } from '@/lib/marathon-logic';
+import {
+  formatArabicDateTime,
+  fromDateTimeLocalValue,
+  getEventRegistrationState,
+  toDateTimeLocalValue,
+  wouldCreateDependencyCycle,
+} from '@/lib/marathon-logic';
 import type { DeliverableItem, MarathonEvent, Organizer } from '@/lib/types';
 
 interface EventSettingsOrganizersTabProps {
@@ -44,6 +53,19 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
   event,
   organizers,
 }) => {
+  // Registration open/close schedule state
+  const [regStatus, setRegStatus] = useState<'auto' | 'open' | 'closed'>(
+    event.registrationStatus ?? 'auto'
+  );
+  const [opensAtLocal, setOpensAtLocal] = useState(() =>
+    toDateTimeLocalValue(event.registrationOpensAt)
+  );
+  const [closesAtLocal, setClosesAtLocal] = useState(() =>
+    toDateTimeLocalValue(event.registrationClosesAt)
+  );
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleSavedMsg, setScheduleSavedMsg] = useState<string | null>(null);
+
   // Deliverable Tasks management
   const [newTaskName, setNewTaskName] = useState('');
   const [savingTask, setSavingTask] = useState(false);
@@ -65,6 +87,50 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
   // Clipboard feedback
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
+  const liveRegState = getEventRegistrationState({
+    isActive: event.isActive,
+    registrationStatus: regStatus,
+    registrationOpensAt: fromDateTimeLocalValue(opensAtLocal) || undefined,
+    registrationClosesAt: fromDateTimeLocalValue(closesAtLocal) || undefined,
+  });
+
+  const persistSchedule = async (
+    nextStatus: 'auto' | 'open' | 'closed',
+    nextOpensLocal: string,
+    nextClosesLocal: string
+  ) => {
+    setSavingSchedule(true);
+    setScheduleSavedMsg(null);
+    try {
+      await updateEventDoc(event.id, {
+        registrationStatus: nextStatus,
+        registrationOpensAt: fromDateTimeLocalValue(nextOpensLocal),
+        registrationClosesAt: fromDateTimeLocalValue(nextClosesLocal),
+      });
+      setScheduleSavedMsg('تم حفظ مواعيد الفتح والإغلاق بنجاح');
+      setTimeout(() => setScheduleSavedMsg(null), 2500);
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  const handleSelectRegMode = async (mode: 'auto' | 'open' | 'closed') => {
+    setRegStatus(mode);
+    await persistSchedule(mode, opensAtLocal, closesAtLocal);
+  };
+
+  const handleSaveSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await persistSchedule(regStatus, opensAtLocal, closesAtLocal);
+  };
+
+  const handleClearSchedule = async () => {
+    setRegStatus('auto');
+    setOpensAtLocal('');
+    setClosesAtLocal('');
+    await persistSchedule('auto', '', '');
+  };
 
   const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,6 +274,140 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
 
   return (
     <div className="space-y-6">
+      {/* Section 0: Registration Open / Close Schedule */}
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <CalendarClock className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                مواعيد وحالة فتح وإغلاق التسجيل للمنظمين
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-neutral-400">
+                حدد متى يفتح الإيفنت ومتى يغلق؛ إذا كان مغلقاً أو لم يحن موعده سيظهر للمنظم أن التسجيل لم يفتح بعد.
+              </p>
+            </div>
+          </div>
+
+          <span
+            data-testid="schedule-live-badge"
+            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold shrink-0 ${
+              liveRegState.isOpen
+                ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+            }`}
+          >
+            {liveRegState.isOpen ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+            <span>{liveRegState.label}</span>
+          </span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {(
+            [
+              { id: 'auto', label: 'تلقائي بالمواعيد' },
+              { id: 'open', label: 'مفتوح الآن' },
+              { id: 'closed', label: 'إغلاق مؤقت' },
+            ] as const
+          ).map((mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              disabled={savingSchedule}
+              data-testid={`schedule-mode-${mode.id}`}
+              onClick={() => void handleSelectRegMode(mode.id)}
+              className={`rounded-xl border px-3 py-2.5 text-xs font-bold min-h-[44px] transition-colors ${
+                regStatus === mode.id
+                  ? mode.id === 'closed'
+                    ? 'border-red-600 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
+                    : 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300'
+                  : 'border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black text-slate-700 dark:text-neutral-300'
+              }`}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={(e) => void handleSaveSchedule(e)} className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label
+                htmlFor="registration-opens-input"
+                className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
+              >
+                موعد فتح التسجيل (اختياري)
+              </label>
+              <input
+                id="registration-opens-input"
+                data-testid="registration-opens-input"
+                type="datetime-local"
+                dir="ltr"
+                value={opensAtLocal}
+                onChange={(e) => setOpensAtLocal(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="registration-closes-input"
+                className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
+              >
+                موعد إغلاق التسجيل (اختياري)
+              </label>
+              <input
+                id="registration-closes-input"
+                data-testid="registration-closes-input"
+                type="datetime-local"
+                dir="ltr"
+                value={closesAtLocal}
+                onChange={(e) => setClosesAtLocal(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+              />
+            </div>
+          </div>
+
+          {(event.registrationOpensAt || event.registrationClosesAt) && (
+            <div className="text-xs text-slate-500 dark:text-neutral-400 flex flex-wrap gap-x-4 gap-y-1">
+              {event.registrationOpensAt && (
+                <span>يفتح: {formatArabicDateTime(event.registrationOpensAt)}</span>
+              )}
+              {event.registrationClosesAt && (
+                <span>يُغلق: {formatArabicDateTime(event.registrationClosesAt)}</span>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="submit"
+              disabled={savingSchedule}
+              data-testid="save-schedule-btn"
+              className="rounded-xl bg-slate-900 dark:bg-white text-white dark:text-black px-4 py-2.5 text-xs font-bold min-h-[42px] disabled:opacity-50"
+            >
+              {savingSchedule ? 'جاري الحفظ...' : 'حفظ مواعيد الفتح والإغلاق'}
+            </button>
+            {(opensAtLocal || closesAtLocal || regStatus !== 'auto') && (
+              <button
+                type="button"
+                disabled={savingSchedule}
+                data-testid="clear-schedule-btn"
+                onClick={() => void handleClearSchedule()}
+                className="rounded-xl border border-slate-300 dark:border-neutral-700 px-3.5 py-2.5 text-xs font-bold text-slate-700 dark:text-neutral-300 min-h-[42px]"
+              >
+                مسح المواعيد (مفتوح دائماً)
+              </button>
+            )}
+            {scheduleSavedMsg && (
+              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                {scheduleSavedMsg}
+              </span>
+            )}
+          </div>
+        </form>
+      </section>
+
       {/* Section 1: Tasks / Deliverable Items Settings */}
       <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
         <div className="flex items-center gap-2">

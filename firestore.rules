@@ -41,13 +41,16 @@ service cloud.firestore {
         'displayFields', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
       ]) &&
       data.keys().hasOnly([
-        'id', 'name', 'date', 'isActive', 'deliverableItems',
-        'displayFields', 'displayLabels', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
+        'id', 'name', 'date', 'isActive', 'registrationStatus', 'registrationOpensAt', 'registrationClosesAt',
+        'deliverableItems', 'displayFields', 'displayLabels', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
       ]) &&
       isValidId(data.id) &&
       data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
       data.date is string && data.date.size() >= 1 && data.date.size() <= 40 &&
       data.isActive is bool &&
+      (!('registrationStatus' in data) || data.registrationStatus in ['auto', 'open', 'closed']) &&
+      (!('registrationOpensAt' in data) || (data.registrationOpensAt is string && data.registrationOpensAt.size() <= 40)) &&
+      (!('registrationClosesAt' in data) || (data.registrationClosesAt is string && data.registrationClosesAt.size() <= 40)) &&
       data.deliverableItems is list && data.deliverableItems.size() <= 20 &&
       data.displayFields is list && data.displayFields.size() <= 20 &&
       (!('displayLabels' in data) || data.displayLabels is map) &&
@@ -123,7 +126,8 @@ service cloud.firestore {
         incoming().ownerUid == existing().ownerUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().diff(existing()).affectedKeys().hasOnly([
-          'name', 'date', 'isActive', 'deliverableItems', 'displayFields', 'displayLabels', 'searchFields', 'totalParticipants'
+          'name', 'date', 'isActive', 'registrationStatus', 'registrationOpensAt', 'registrationClosesAt',
+          'deliverableItems', 'displayFields', 'displayLabels', 'searchFields', 'totalParticipants'
         ]);
       allow delete: if isValidId(eventId);
 

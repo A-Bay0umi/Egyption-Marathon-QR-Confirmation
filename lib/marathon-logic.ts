@@ -4,6 +4,7 @@ import type {
   DeliverableItem,
   DeliveryRecord,
   ItemProgressStat,
+  MarathonEvent,
   Organizer,
   Participant,
 } from './types';
@@ -414,4 +415,116 @@ export function formatRelativeArabicTime(iso: string, nowMs = Date.now()): strin
   } catch {
     return '';
   }
+}
+
+export interface EventRegistrationState {
+  isOpen: boolean;
+  reason: 'open' | 'inactive' | 'manual_closed' | 'not_opened_yet' | 'ended';
+  label: string;
+  opensAtMs?: number;
+  closesAtMs?: number;
+}
+
+export function getEventRegistrationState(
+  event: Pick<
+    MarathonEvent,
+    'isActive' | 'registrationStatus' | 'registrationOpensAt' | 'registrationClosesAt'
+  >,
+  nowMs = Date.now()
+): EventRegistrationState {
+  const opensAtRaw = event.registrationOpensAt ? Date.parse(event.registrationOpensAt) : NaN;
+  const closesAtRaw = event.registrationClosesAt ? Date.parse(event.registrationClosesAt) : NaN;
+  const opensAtMs = Number.isNaN(opensAtRaw) ? undefined : opensAtRaw;
+  const closesAtMs = Number.isNaN(closesAtRaw) ? undefined : closesAtRaw;
+
+  if (!event.isActive) {
+    return {
+      isOpen: false,
+      reason: 'inactive',
+      label: 'الإيفنت غير مفعّل حالياً',
+      opensAtMs,
+      closesAtMs,
+    };
+  }
+
+  if (event.registrationStatus === 'closed') {
+    return {
+      isOpen: false,
+      reason: 'manual_closed',
+      label: 'التسجيل مغلق حالياً',
+      opensAtMs,
+      closesAtMs,
+    };
+  }
+
+  if (event.registrationStatus === 'open') {
+    return {
+      isOpen: true,
+      reason: 'open',
+      label: 'التسجيل مفتوح الآن',
+      opensAtMs,
+      closesAtMs,
+    };
+  }
+
+  if (opensAtMs !== undefined && nowMs < opensAtMs) {
+    return {
+      isOpen: false,
+      reason: 'not_opened_yet',
+      label: 'لم يفتح التسجيل بعد',
+      opensAtMs,
+      closesAtMs,
+    };
+  }
+
+  if (closesAtMs !== undefined && nowMs > closesAtMs) {
+    return {
+      isOpen: false,
+      reason: 'ended',
+      label: 'تم إغلاق التسجيل',
+      opensAtMs,
+      closesAtMs,
+    };
+  }
+
+  return {
+    isOpen: true,
+    reason: 'open',
+    label: 'التسجيل مفتوح الآن',
+    opensAtMs,
+    closesAtMs,
+  };
+}
+
+export function formatArabicDateTime(iso?: string): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return new Intl.DateTimeFormat('ar-EG', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(d);
+  } catch {
+    return iso;
+  }
+}
+
+export function toDateTimeLocalValue(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export function fromDateTimeLocalValue(localStr: string): string {
+  const clean = localStr.trim();
+  if (!clean) return '';
+  const d = new Date(clean);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString();
 }

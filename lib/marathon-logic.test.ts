@@ -213,10 +213,10 @@ test('computeEventStats and autoSuggestColumnMapping return accurate output', ()
   );
 });
 
-test('verifyAdminPasscode validates Abdallah@2008 strictly', () => {
-  assert.equal(verifyAdminPasscode('Abdallah@2008'), true);
-  assert.equal(verifyAdminPasscode('  Abdallah@2008  '), true);
-  assert.equal(verifyAdminPasscode('abdallah@2008'), false);
+test('verifyAdminPasscode validates NR@2026 strictly', () => {
+  assert.equal(verifyAdminPasscode('NR@2026'), true);
+  assert.equal(verifyAdminPasscode('  NR@2026  '), true);
+  assert.equal(verifyAdminPasscode('NR@2026'), false);
   assert.equal(verifyAdminPasscode('wrong'), false);
 });
 

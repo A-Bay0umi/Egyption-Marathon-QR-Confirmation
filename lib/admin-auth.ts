@@ -1,6 +1,6 @@
 import type { MarathonEvent, Organizer } from './types';
 
-export const ADMIN_PASSCODE = 'Abdallah@2008';
+export const ADMIN_PASSCODE = 'NR@2026';
 export const ADMIN_SESSION_STORAGE_KEY = 'marathon_admin_passcode_session_v1';
 export const ORGANIZER_SESSION_STORAGE_KEY = 'marathon_organizer_session_v1';
 

@@ -133,22 +133,18 @@ export function buildOrganizerWhatsAppMessage(
     event?.deliverableItems
       .filter((i) => org.assignedItems.includes(i.id))
       .map((i) => i.name)
-      .join('، ') || 'المهام المخصصة';
-
-  const targetEventId = event?.id || org.eventId;
+      .join('، ') || 'Assigned Tasks';
 
   return [
-    `مرحباً ${org.name} 👋`,
-    `تم تفعيل حسابك في إيفنت "${event?.name ?? 'الماراثون'}"${org.boothName ? ` (${org.boothName})` : ''}.`,
+    `Hi ${org.name} 👋`,
+    `Your organizer account is now active for "${event?.name ?? 'the Marathon'}"${org.boothName ? ` (${org.boothName})` : ''}.`,
     '',
-    `🔗 رابط الدخول الخاص بك:`,
+    `🔗 Your Direct Access Link:`,
     magicUrl,
     '',
-    `🔑 كود التفعيل داخل التطبيق المثبّت:`,
-    `${targetEventId}:${org.magicToken}`,
-    '',
-    `📋 الوظائف / المهام المخصصة لك: ${rolesList}`,
-    `📱 يتم حفظ تسجيل دخولك تلقائياً على هاتفك بمجرد فتح الرابط أو لصقه داخل التطبيق.`,
+    `📋 Assigned Roles / Tasks: ${rolesList}`,
+    `📲 Open the link directly in your browser—or if you installed the Web App, copy and paste this link inside it.`,
+    `📱 Your session will be saved automatically on your phone.`,
   ].join('\n');
 }
 

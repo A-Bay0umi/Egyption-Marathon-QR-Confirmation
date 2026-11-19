@@ -6,9 +6,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertTriangle,
+  ArrowRight,
   Bell,
   Camera,
   CheckCircle2,
+  ChevronLeft,
+  ClipboardList,
   Link2,
   Moon,
   Search,
@@ -90,8 +93,8 @@ export const OrganizerScannerApp: React.FC = () => {
   const [organizerLoaded, setOrganizerLoaded] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
-  // Multi-role switcher state ('all' or specific DeliverableItem.id)
-  const [selectedRoleId, setSelectedRoleId] = useState<string>('all');
+  // Selected task state (null prompts task picker when organizer has multiple tasks)
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
 
   // Scanner & Search UI state
   const [searchQuery, setSearchQuery] = useState('');
@@ -211,13 +214,16 @@ export const OrganizerScannerApp: React.FC = () => {
     );
   }, [eventData, organizer]);
 
-  // Active deliverables based on organizer's role switcher
+  // Active single deliverable based on organizer's chosen task
   const activeRoleItems: DeliverableItem[] = useMemo(() => {
-    if (assignedDeliverables.length <= 1) return assignedDeliverables;
-    if (selectedRoleId === 'all') return assignedDeliverables;
+    if (assignedDeliverables.length === 0) return [];
+    if (assignedDeliverables.length === 1) return assignedDeliverables;
+    if (!selectedRoleId) return [];
     const match = assignedDeliverables.find((i) => i.id === selectedRoleId);
-    return match ? [match] : assignedDeliverables;
+    return match ? [match] : [];
   }, [assignedDeliverables, selectedRoleId]);
+
+  const needsRolePicker = assignedDeliverables.length > 1 && activeRoleItems.length === 0;
 
   // Chained counters per assigned role (based on prerequisite completions)
   const roleStatsMap = useMemo(() => {
@@ -259,7 +265,7 @@ export const OrganizerScannerApp: React.FC = () => {
     return map;
   }, [assignedDeliverables, eventData, organizer, participants]);
 
-  // Header counter: when 1 role is active, count strictly against its prerequisite!
+  // Header counter: counts strictly against active task's prerequisite
   const headerProgress = useMemo(() => {
     if (!eventData || !organizer) {
       return { count: 0, target: 0, prereqName: null as string | null };
@@ -274,19 +280,9 @@ export const OrganizerScannerApp: React.FC = () => {
         };
       }
     }
-    // Multiple roles combined ('all'): sum eligible targets across active roles or fall back cleanly
-    let sumEligible = 0;
-    let sumDeliveredByMe = 0;
-    for (const item of activeRoleItems) {
-      const stat = roleStatsMap.get(item.id);
-      if (stat) {
-        sumEligible += stat.eligible;
-        sumDeliveredByMe += stat.deliveredByMe;
-      }
-    }
     return {
-      count: sumDeliveredByMe || organizer.deliveredCount,
-      target: sumEligible || eventData.totalParticipants || participants.length,
+      count: organizer.deliveredCount,
+      target: eventData.totalParticipants || participants.length,
       prereqName: null as string | null,
     };
   }, [activeRoleItems, eventData, organizer, participants.length, roleStatsMap]);
@@ -416,6 +412,25 @@ export const OrganizerScannerApp: React.FC = () => {
     }
   };
 
+  const handleSelectRole = useCallback(
+    (roleId: string) => {
+      void unlockAudio(true);
+      setSelectedRoleId(roleId);
+      setSelectedBarcode(null);
+      setFeedbackBanner(null);
+      setSearchQuery('');
+    },
+    [unlockAudio]
+  );
+
+  const handleReturnToRolePicker = useCallback(() => {
+    void cameraRef.current?.stopCamera();
+    setSelectedRoleId(null);
+    setSelectedBarcode(null);
+    setFeedbackBanner(null);
+    setSearchQuery('');
+  }, []);
+
   const handleClearSession = () => {
     clearOrganizerSessionLocally();
     setSession(null);
@@ -424,6 +439,7 @@ export const OrganizerScannerApp: React.FC = () => {
     setEventLoaded(false);
     setOrganizerLoaded(false);
     setParticipants([]);
+    setSelectedRoleId(null);
     setSelectedBarcode(null);
     setFeedbackBanner(null);
     if (window.location.search) {
@@ -691,48 +707,115 @@ export const OrganizerScannerApp: React.FC = () => {
       </header>
 
       <main className="max-w-4xl mx-auto px-3 sm:px-4 pt-4 space-y-4">
-        {/* Multi-Role Switcher with chained counter per role */}
-        {assignedDeliverables.length > 1 && (
+        {needsRolePicker ? (
           <section
-            aria-label="التبديل بين الوظائف"
-            className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-3 space-y-2"
+            data-testid="role-picker-screen"
+            aria-label="اختيار المهمة"
+            className="space-y-4 pt-2"
           >
-            <div className="text-xs font-bold text-slate-600 dark:text-neutral-400 px-1">
-              الوظيفة الحالية (اضغط للتبديل بين وظائفك):
+            <div className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-5 sm:p-6 shadow-sm space-y-2 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                <ClipboardList className="w-6 h-6" />
+              </div>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                اختر المهمة التي ستعمل عليها
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 dark:text-neutral-400 max-w-md mx-auto leading-relaxed">
+                لديك {assignedDeliverables.length} مهام مخصصة في {eventData.name}. اضغط على أي مهمة لبدء المسح والتسليم، ويمكنك الرجوع لتغييرها في أي وقت.
+              </p>
             </div>
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-              <button
-                type="button"
-                onClick={() => setSelectedRoleId('all')}
-                className={`rounded-xl px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 min-h-[40px] transition-colors ${
-                  selectedRoleId === 'all'
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-100 dark:bg-neutral-900 text-slate-700 dark:text-neutral-300'
-                }`}
-              >
-                كل الوظائف ({assignedDeliverables.length})
-              </button>
-              {assignedDeliverables.map((role) => {
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {assignedDeliverables.map((role, idx) => {
                 const stat = roleStatsMap.get(role.id);
+                const total = stat?.eligible ?? 0;
+                const done = stat?.totalDelivered ?? 0;
+                const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+
                 return (
                   <button
                     key={role.id}
                     type="button"
-                    onClick={() => setSelectedRoleId(role.id)}
-                    className={`rounded-xl px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 min-h-[40px] transition-colors font-mono-num ${
-                      selectedRoleId === role.id
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-slate-100 dark:bg-neutral-900 text-slate-700 dark:text-neutral-300'
-                    }`}
+                    data-testid={`pick-role-${role.id}`}
+                    onClick={() => handleSelectRole(role.id)}
+                    className="group rounded-3xl border-2 border-slate-200 dark:border-neutral-800 hover:border-emerald-500 dark:hover:border-emerald-500 bg-white dark:bg-neutral-950 p-5 text-right shadow-sm transition-all active:scale-[0.99] space-y-3"
                   >
-                    {role.name}
-                    {stat ? ` (${stat.totalDelivered}/${stat.eligible})` : ''}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 space-y-1">
+                        <span className="inline-block text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-lg">
+                          مهمة #{idx + 1}
+                        </span>
+                        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white truncate">
+                          {role.name}
+                        </h2>
+                        {stat?.prerequisiteName && (
+                          <div className="text-xs text-amber-700 dark:text-amber-400 font-semibold">
+                            تُسلَّم بعد: {stat.prerequisiteName}
+                          </div>
+                        )}
+                      </div>
+                      <span className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 group-hover:bg-emerald-700 transition-colors">
+                        <ChevronLeft className="w-5 h-5" />
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between text-xs font-bold font-mono-num text-slate-600 dark:text-neutral-300">
+                        <span>
+                          الإنجاز: {done} / {total}
+                        </span>
+                        <span className="text-emerald-700 dark:text-emerald-400">{pct}%</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-slate-100 dark:bg-neutral-900 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-emerald-600 transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
                   </button>
                 );
               })}
             </div>
+
+            <div className="flex items-center justify-between text-xs text-slate-500 dark:text-neutral-500 px-1 pt-2">
+              <span>{organizer.boothName || eventData.name} · محفوظ محلياً على الهاتف</span>
+              <button
+                type="button"
+                onClick={handleClearSession}
+                className="underline underline-offset-4 hover:text-slate-800 dark:hover:text-neutral-200 py-1"
+              >
+                مسح الجلسة
+              </button>
+            </div>
           </section>
-        )}
+        ) : (
+          <>
+            {/* Top Back Bar to change active task when organizer has multiple tasks */}
+            {assignedDeliverables.length > 1 && activeRoleItems[0] && (
+              <div
+                data-testid="active-role-top-bar"
+                className="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-2.5 shadow-sm"
+              >
+                <button
+                  type="button"
+                  data-testid="switch-role-back-btn"
+                  onClick={handleReturnToRolePicker}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 dark:bg-neutral-900 hover:bg-slate-200 dark:hover:bg-neutral-800 px-3.5 py-2 text-xs sm:text-sm font-bold text-slate-800 dark:text-white min-h-[42px] whitespace-nowrap transition-colors"
+                >
+                  <ArrowRight className="w-4 h-4 shrink-0" />
+                  <span>رجوع للمهام</span>
+                </button>
+                <div className="min-w-0 text-left px-1">
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-neutral-400">
+                    المهمة الحالية
+                  </div>
+                  <div className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 truncate">
+                    {activeRoleItems[0].name}
+                  </div>
+                </div>
+              </div>
+            )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           {/* Scanner & Search Column — hidden automatically after barcode scan so participant view takes the full screen */}
@@ -1080,6 +1163,8 @@ export const OrganizerScannerApp: React.FC = () => {
             </div>
           </div>
         </div>
+          </>
+        )}
       </main>
     </div>
   );

@@ -1,13 +1,28 @@
 'use client';
 
-import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react';
 import { Camera, CameraOff, Flashlight, ImageUp, Keyboard, SwitchCamera } from 'lucide-react';
 import type { QrcodeDecoderAsync } from 'html5-qrcode/esm/core';
+
+export interface BarcodeCameraHandle {
+  startCamera: () => Promise<boolean>;
+  stopCamera: () => Promise<void>;
+}
 
 interface BarcodeCameraProps {
   onScan: (decodedText: string) => void;
   disabled?: boolean;
   compactIdle?: boolean;
+  autoStopOnScan?: boolean;
+  onUserGesture?: () => void;
 }
 
 interface NativeBarcodeDetectorResult {
@@ -43,11 +58,8 @@ function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const BarcodeCamera: React.FC<BarcodeCameraProps> = ({
-  onScan,
-  disabled = false,
-  compactIdle = false,
-}) => {
+export const BarcodeCamera = forwardRef<BarcodeCameraHandle, BarcodeCameraProps>(
+  ({ onScan, disabled = false, compactIdle = false, autoStopOnScan = true, onUserGesture }, ref) => {
   const reactId = useId();
   const safeId = reactId.replace(/[^a-zA-Z0-9_-]/g, '');
   const fileReaderElementId = `marathon-file-qr-${safeId}`;
@@ -73,20 +85,17 @@ export const BarcodeCamera: React.FC<BarcodeCameraProps> = ({
   const zxingDecoderRef = useRef<QrcodeDecoderAsync | null>(null);
 
   const onScanRef = useRef(onScan);
+  const onUserGestureRef = useRef(onUserGesture);
+  const autoStopOnScanRef = useRef(autoStopOnScan);
   useEffect(() => {
     onScanRef.current = onScan;
   }, [onScan]);
-
-  const emitScan = useCallback((decodedText: string) => {
-    const clean = decodedText.trim();
-    if (!clean) return;
-    const now = Date.now();
-    if (lastScanRef.current.code === clean && now - lastScanRef.current.at < 1500) {
-      return;
-    }
-    lastScanRef.current = { code: clean, at: now };
-    onScanRef.current(clean);
-  }, []);
+  useEffect(() => {
+    onUserGestureRef.current = onUserGesture;
+  }, [onUserGesture]);
+  useEffect(() => {
+    autoStopOnScanRef.current = autoStopOnScan;
+  }, [autoStopOnScan]);
 
   const releaseStream = useCallback(() => {
     if (scanTimerRef.current) {
@@ -124,6 +133,23 @@ export const BarcodeCamera: React.FC<BarcodeCameraProps> = ({
     setTorchOn(false);
     setTorchSupported(false);
   }, [releaseStream]);
+
+  const emitScan = useCallback(
+    (decodedText: string) => {
+      const clean = decodedText.trim();
+      if (!clean) return;
+      const now = Date.now();
+      if (lastScanRef.current.code === clean && now - lastScanRef.current.at < 1500) {
+        return;
+      }
+      lastScanRef.current = { code: clean, at: now };
+      if (autoStopOnScanRef.current) {
+        void stopCamera();
+      }
+      onScanRef.current(clean);
+    },
+    [stopCamera]
+  );
 
   const ensureDecoders = useCallback(async () => {
     // 1. Safe native BarcodeDetector setup (only intersect supported formats)
@@ -657,9 +683,19 @@ export const BarcodeCamera: React.FC<BarcodeCameraProps> = ({
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualCode.trim()) return;
+    onUserGestureRef.current?.();
     emitScan(manualCode.trim());
     setManualCode('');
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      startCamera: () => openCameraStream(),
+      stopCamera,
+    }),
+    [openCameraStream, stopCamera]
+  );
 
   useEffect(() => {
     return () => {
@@ -712,7 +748,10 @@ export const BarcodeCamera: React.FC<BarcodeCameraProps> = ({
           <button
             type="button"
             disabled={disabled}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              onUserGestureRef.current?.();
+              fileInputRef.current?.click();
+            }}
             aria-label="اختيار صورة أو ملف أو تصوير"
             className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-neutral-200 hover:bg-slate-100 dark:hover:bg-neutral-800 min-h-[42px]"
           >
@@ -730,7 +769,14 @@ export const BarcodeCamera: React.FC<BarcodeCameraProps> = ({
           <button
             type="button"
             disabled={disabled || isStarting}
-            onClick={() => (isScanning ? void stopCamera() : void openCameraStream())}
+            onClick={() => {
+              onUserGestureRef.current?.();
+              if (isScanning) {
+                void stopCamera();
+              } else {
+                void openCameraStream();
+              }
+            }}
             className={`inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold min-h-[42px] transition-colors whitespace-nowrap shrink-0 disabled:opacity-60 ${
               isScanning
                 ? 'bg-red-600 text-white hover:bg-red-700'
@@ -826,4 +872,6 @@ export const BarcodeCamera: React.FC<BarcodeCameraProps> = ({
       )}
     </div>
   );
-};
+});
+
+BarcodeCamera.displayName = 'BarcodeCamera';

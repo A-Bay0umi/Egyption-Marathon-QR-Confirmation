@@ -6,6 +6,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertTriangle,
+  Bell,
+  Camera,
   CheckCircle2,
   Link2,
   Moon,
@@ -20,7 +22,7 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { BarcodeCamera } from './BarcodeCamera';
+import { BarcodeCamera, type BarcodeCameraHandle } from './BarcodeCamera';
 import { BrandLogo } from '@/components/BrandLogo';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
@@ -58,7 +60,14 @@ export const OrganizerScannerApp: React.FC = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const isOnline = useOnlineStatus();
-  const { playSuccessSound, playDuplicateAlertSound, playNotFoundSound } = useWebAudio();
+  const {
+    notificationPermission,
+    unlockAudio,
+    playSuccessSound,
+    playDuplicateAlertSound,
+    playNotFoundSound,
+  } = useWebAudio();
+  const cameraRef = useRef<BarcodeCameraHandle | null>(null);
 
   const [sessionReady, setSessionReady] = useState(false);
   const [session, setSession] = useState<SavedOrganizerSession | null>(null);
@@ -179,6 +188,7 @@ export const OrganizerScannerApp: React.FC = () => {
 
   const handleActivatePastedInvite = (e: React.FormEvent) => {
     e.preventDefault();
+    void unlockAudio(true);
     const parsed = parseOrganizerMagicInput(invitePasteInput);
     if (!parsed) {
       setInvitePasteError(
@@ -301,10 +311,15 @@ export const OrganizerScannerApp: React.FC = () => {
 
   const handleSelectParticipant = useCallback(
     (participant: Participant) => {
+      void cameraRef.current?.stopCamera();
       setSelectedBarcode(participant.barcode);
       setSearchQuery('');
       setFeedbackBanner(null);
 
+      const displayName = extractParticipantDisplayName(
+        participant,
+        eventData?.displayFields ?? []
+      );
       const allItems = eventData?.deliverableItems ?? [];
       const hasBlockOrDuplicate = activeRoleItems.some((item) => {
         const already = participant.deliveries?.[item.id]?.status === 'delivered';
@@ -312,12 +327,12 @@ export const OrganizerScannerApp: React.FC = () => {
         return already || missingPrereq;
       });
       if (hasBlockOrDuplicate) {
-        playDuplicateAlertSound();
+        playDuplicateAlertSound(`${displayName} (${participant.barcode})`);
       } else {
-        playSuccessSound();
+        playSuccessSound(`${displayName} (${participant.barcode})`);
       }
     },
-    [activeRoleItems, eventData?.deliverableItems, playDuplicateAlertSound, playSuccessSound]
+    [activeRoleItems, eventData?.deliverableItems, eventData?.displayFields, playDuplicateAlertSound, playSuccessSound]
   );
 
   const handleBarcodeScanned = useCallback(
@@ -328,7 +343,7 @@ export const OrganizerScannerApp: React.FC = () => {
         participants.find((p) => matchesSearchQuery(p, rawCode));
 
       if (!match) {
-        playNotFoundSound();
+        playNotFoundSound(`الباركود غير مسجل: ${rawCode}`);
         setSelectedBarcode(null);
         setFeedbackBanner({
           type: 'error',
@@ -342,9 +357,26 @@ export const OrganizerScannerApp: React.FC = () => {
     [handleSelectParticipant, participants, playNotFoundSound]
   );
 
+  const handleReopenCamera = useCallback(() => {
+    void unlockAudio(true);
+    setSelectedBarcode(null);
+    setFeedbackBanner(null);
+    void cameraRef.current?.startCamera();
+  }, [unlockAudio]);
+
+  const handleBackToSearch = useCallback(() => {
+    setSelectedBarcode(null);
+    setFeedbackBanner(null);
+  }, []);
+
   const handleConfirmDelivery = async (item: DeliverableItem) => {
     if (!eventData || !organizer || !selectedParticipant) return;
+    void unlockAudio(true);
     setDeliveringId(item.id);
+    const displayName = extractParticipantDisplayName(
+      selectedParticipant,
+      eventData.displayFields
+    );
     try {
       const result = await commitAtomicDelivery({
         eventId: eventData.id,
@@ -357,25 +389,27 @@ export const OrganizerScannerApp: React.FC = () => {
       });
 
       if (result.ok) {
-        playSuccessSound();
+        playSuccessSound(`تم تسليم "${item.name}" — ${displayName}`);
         setFeedbackBanner({
           type: 'success',
           text: `تم تسليم "${item.name}" بنجاح`,
         });
       } else if (result.reason === 'prerequisite_not_met') {
-        playDuplicateAlertSound();
+        playDuplicateAlertSound(
+          `يلزم إتمام "${result.missingItemName ?? 'الخطوة السابقة'}" قبل "${item.name}"`
+        );
         setFeedbackBanner({
           type: 'warning',
           text: `⛔ لا يمكن تسليم "${item.name}" قبل إتمام "${result.missingItemName ?? 'الخطوة السابقة'}" أولاً!`,
         });
       } else if (result.reason === 'already_delivered') {
-        playDuplicateAlertSound();
+        playDuplicateAlertSound(`تم تسليم "${item.name}" مسبقاً — ${displayName}`);
         setFeedbackBanner({
           type: 'warning',
           text: `تنبيه: تم تسليم "${item.name}" مسبقاً!`,
         });
       } else if (result.reason === 'organizer_frozen') {
-        playNotFoundSound();
+        playNotFoundSound('تم إيقاف صلاحية هذا المنظم');
       }
     } finally {
       setDeliveringId(null);
@@ -618,6 +652,18 @@ export const OrganizerScannerApp: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            {notificationPermission === 'default' && (
+              <button
+                type="button"
+                onClick={() => void unlockAudio(true)}
+                aria-label="تفعيل صوت الإشعارات"
+                title="تفعيل صوت الإشعارات والصوت المزدوج"
+                className="inline-flex items-center justify-center gap-1 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-2 text-xs font-bold text-amber-800 dark:text-amber-300 min-h-[42px] whitespace-nowrap"
+              >
+                <Bell className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline">تفعيل التنبيه</span>
+              </button>
+            )}
             <PWAInstallButton compact />
             {adminLoggedIn && (
               <Link
@@ -689,11 +735,13 @@ export const OrganizerScannerApp: React.FC = () => {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-          {/* Scanner & Search Column */}
-          <div className="lg:col-span-5 space-y-3">
+          {/* Scanner & Search Column — hidden automatically after barcode scan so participant view takes the full screen */}
+          <div className={selectedParticipant ? 'hidden' : 'lg:col-span-5 space-y-3'}>
             <BarcodeCamera
+              ref={cameraRef}
               onScan={handleBarcodeScanned}
-              compactIdle={Boolean(selectedParticipant)}
+              autoStopOnScan
+              onUserGesture={() => void unlockAudio(true)}
             />
 
             <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-3 sm:p-4">
@@ -741,7 +789,10 @@ export const OrganizerScannerApp: React.FC = () => {
                         <button
                           key={p.barcode}
                           type="button"
-                          onClick={() => handleSelectParticipant(p)}
+                          onClick={() => {
+                            void unlockAudio(true);
+                            handleSelectParticipant(p);
+                          }}
                           className="w-full text-right px-4 py-3 hover:bg-emerald-50 dark:hover:bg-neutral-900 transition-colors flex items-center justify-between gap-3 min-h-[56px]"
                         >
                           <div className="min-w-0">
@@ -769,12 +820,38 @@ export const OrganizerScannerApp: React.FC = () => {
             </div>
           </div>
 
-          {/* Participant Card & Action Column */}
-          <div className="lg:col-span-7 space-y-4">
+          {/* Participant Card & Action Column — expands full-width when a participant is scanned/selected */}
+          <div className={selectedParticipant ? 'lg:col-span-12 space-y-4' : 'lg:col-span-7 space-y-4'}>
+            {selectedParticipant && (
+              <div
+                data-testid="post-scan-top-bar"
+                className="flex items-center gap-2 rounded-2xl border border-emerald-200 dark:border-emerald-900/70 bg-white dark:bg-neutral-950 p-2.5 shadow-sm"
+              >
+                <button
+                  type="button"
+                  data-testid="reopen-camera-btn"
+                  onClick={handleReopenCamera}
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold text-sm sm:text-base py-3 px-4 min-h-[50px] shadow-sm transition-all"
+                >
+                  <Camera className="w-5 h-5 shrink-0" />
+                  <span>فتح الكاميرا</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid="back-to-search-btn"
+                  onClick={handleBackToSearch}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-100 dark:bg-neutral-900 hover:bg-slate-200 dark:hover:bg-neutral-800 text-slate-800 dark:text-neutral-100 font-bold text-xs sm:text-sm py-3 px-3.5 min-h-[50px] whitespace-nowrap"
+                >
+                  <Search className="w-4 h-4 shrink-0" />
+                  <span>بحث يدوي</span>
+                </button>
+              </div>
+            )}
+
             {feedbackBanner && (
               <div
                 role="status"
-                className={`rounded-2xl p-3.5 text-sm font-bold flex items-center gap-2.5 border ${
+                className={`rounded-2xl p-3.5 text-sm font-bold flex flex-wrap items-center justify-between gap-2.5 border ${
                   feedbackBanner.type === 'success'
                     ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700'
                     : feedbackBanner.type === 'warning'
@@ -782,12 +859,24 @@ export const OrganizerScannerApp: React.FC = () => {
                     : 'bg-red-50 dark:bg-red-950/60 text-red-900 dark:text-red-200 border-red-300 dark:border-red-700'
                 }`}
               >
-                {feedbackBanner.type === 'success' ? (
-                  <CheckCircle2 className="w-5 h-5 shrink-0" />
-                ) : (
-                  <AlertTriangle className="w-5 h-5 shrink-0" />
+                <div className="flex items-center gap-2.5 min-w-0">
+                  {feedbackBanner.type === 'success' ? (
+                    <CheckCircle2 className="w-5 h-5 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5 shrink-0" />
+                  )}
+                  <span>{feedbackBanner.text}</span>
+                </div>
+                {!selectedParticipant && feedbackBanner.type === 'error' && (
+                  <button
+                    type="button"
+                    onClick={handleReopenCamera}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-red-700 hover:bg-red-800 text-white text-xs font-bold px-3 py-2 min-h-[38px] shrink-0"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>فتح الكاميرا</span>
+                  </button>
                 )}
-                <span>{feedbackBanner.text}</span>
               </div>
             )}
 
@@ -813,8 +902,10 @@ export const OrganizerScannerApp: React.FC = () => {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.16 }}
-                    className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-3.5 sm:p-5 shadow-sm space-y-3.5"
+                    data-testid="participant-full-card"
+                    className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-6 shadow-sm space-y-4 min-h-[calc(100vh-230px)] flex flex-col justify-between"
                   >
+                    <div className="space-y-4">
                     <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-neutral-800">
                       <div className="min-w-0">
                         <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
@@ -823,16 +914,13 @@ export const OrganizerScannerApp: React.FC = () => {
                             {selectedParticipant.barcode}
                           </span>
                         </div>
-                        <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mt-0.5 leading-tight">
+                        <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 leading-tight">
                           {participantDisplayName}
                         </h2>
                       </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedBarcode(null);
-                          setFeedbackBanner(null);
-                        }}
+                        onClick={handleBackToSearch}
                         aria-label="إغلاق بطاقة المتسابق"
                         className="p-2 rounded-xl bg-slate-100 dark:bg-neutral-900 text-slate-600 dark:text-neutral-300 hover:bg-slate-200 dark:hover:bg-neutral-800 min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0"
                       >
@@ -920,9 +1008,11 @@ export const OrganizerScannerApp: React.FC = () => {
                       )}
                     </div>
 
+                    </div>
+
                     {/* Mapped Display Fields */}
                     {visibleFields.length > 0 && (
-                      <div className="grid grid-cols-2 gap-2.5 pt-1">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-1">
                         {visibleFields.map((field) => {
                           const value = selectedParticipant.dynamicData[field];
                           const label = eventData.displayLabels?.[field] || field;
@@ -930,7 +1020,7 @@ export const OrganizerScannerApp: React.FC = () => {
                           return (
                             <div
                               key={field}
-                              className={`rounded-2xl p-2.5 sm:p-3 border ${
+                              className={`rounded-2xl p-3 sm:p-4 border ${
                                 isHighlight
                                   ? 'bg-slate-900 dark:bg-neutral-900 text-white border-slate-800 dark:border-neutral-700'
                                   : 'bg-slate-50 dark:bg-black text-slate-900 dark:text-white border-slate-200 dark:border-neutral-800'
@@ -946,7 +1036,7 @@ export const OrganizerScannerApp: React.FC = () => {
                                 {label}
                               </div>
                               <div
-                                className={`mt-0.5 font-bold break-words ${
+                                className={`mt-1 font-bold break-words ${
                                   isHighlight
                                     ? 'text-xl sm:text-2xl font-mono-num text-emerald-400'
                                     : 'text-sm sm:text-base font-mono-num'

@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Link2,
-  Lock,
   Moon,
   Search,
   Shield,
@@ -22,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { BarcodeCamera } from './BarcodeCamera';
+import { BrandLogo } from '@/components/BrandLogo';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useWebAudio } from '@/hooks/useWebAudio';
@@ -414,15 +414,16 @@ export const OrganizerScannerApp: React.FC = () => {
         <header className="max-w-lg w-full mx-auto flex items-center justify-between gap-3 py-2">
           <button
             type="button"
+            aria-label="EM QR"
             onClick={handleSecretAdminTap}
             onTouchStart={handleSecretLongPressStart}
             onTouchEnd={handleSecretLongPressEnd}
             onMouseDown={handleSecretLongPressStart}
             onMouseUp={handleSecretLongPressEnd}
             onMouseLeave={handleSecretLongPressEnd}
-            className="text-base font-bold text-slate-900 dark:text-white select-none text-right cursor-default"
+            className="select-none text-right cursor-default"
           >
-            نظام توزيع الماراثون
+            <BrandLogo size={40} showSubtitle />
           </button>
           <div className="flex items-center gap-2">
             <PWAInstallButton compact />
@@ -449,12 +450,15 @@ export const OrganizerScannerApp: React.FC = () => {
         <main className="max-w-lg w-full mx-auto my-auto py-6">
           <div className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 sm:p-8 shadow-sm text-center space-y-5">
             <div>
-              <div className="w-14 h-14 rounded-2xl bg-slate-900 dark:bg-emerald-950 flex items-center justify-center mx-auto mb-4">
-                <Lock className="w-7 h-7 text-emerald-400" />
+              <div className="flex justify-center mb-4">
+                <BrandLogo size={64} showText={false} />
               </div>
               <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-                الدخول عبر رابط المنظم فقط
+                EM QR — دخول المنظمين
               </h1>
+              <p className="mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400" dir="ltr">
+                Egyptian Marathon QR
+              </p>
               <p className="mt-2.5 text-sm text-slate-600 dark:text-neutral-300 leading-relaxed">
                 افتح الرابط المرسل لك على واتساب، أو الصق الرابط / كود التفعيل هنا إذا قمت بتثبيت التطبيق على هاتفك.
               </p>
@@ -567,46 +571,49 @@ export const OrganizerScannerApp: React.FC = () => {
       {/* Compact Sticky Header */}
       <header className="sticky top-0 z-30 border-b border-slate-200 dark:border-neutral-800 bg-white/95 dark:bg-black/95 backdrop-blur-md">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white truncate">
-              <button
-                type="button"
-                onClick={handleSecretAdminTap}
-                onTouchStart={handleSecretLongPressStart}
-                onTouchEnd={handleSecretLongPressEnd}
-                onMouseDown={handleSecretLongPressStart}
-                onMouseUp={handleSecretLongPressEnd}
-                onMouseLeave={handleSecretLongPressEnd}
-                className="truncate text-right select-none cursor-default"
-              >
-                {organizer.name}
-              </button>
-              <span aria-hidden="true" className="text-slate-400">·</span>
-              <span
-                data-testid="organizer-chained-counter"
-                className="text-emerald-700 dark:text-emerald-400 font-mono-num whitespace-nowrap"
-              >
-                إنجازك: {headerProgress.count} / {headerProgress.target}
-              </span>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-neutral-400 truncate mt-0.5">
-              <span className="truncate">
-                {headerProgress.prereqName
-                  ? `${eventData.name} · محسوب على "${headerProgress.prereqName}"`
-                  : eventData.name}
-              </span>
-              <span aria-hidden="true">·</span>
-              {isOnline ? (
-                <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-semibold whitespace-nowrap">
-                  <Wifi className="w-3.5 h-3.5" />
-                  <span>متصل</span>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <BrandLogo size={36} showText={false} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white truncate">
+                <button
+                  type="button"
+                  onClick={handleSecretAdminTap}
+                  onTouchStart={handleSecretLongPressStart}
+                  onTouchEnd={handleSecretLongPressEnd}
+                  onMouseDown={handleSecretLongPressStart}
+                  onMouseUp={handleSecretLongPressEnd}
+                  onMouseLeave={handleSecretLongPressEnd}
+                  className="truncate text-right select-none cursor-default"
+                >
+                  {organizer.name}
+                </button>
+                <span aria-hidden="true" className="text-slate-400">·</span>
+                <span
+                  data-testid="organizer-chained-counter"
+                  className="text-emerald-700 dark:text-emerald-400 font-mono-num whitespace-nowrap"
+                >
+                  إنجازك: {headerProgress.count} / {headerProgress.target}
                 </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold whitespace-nowrap">
-                  <WifiOff className="w-3.5 h-3.5" />
-                  <span>أوفلاين</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-neutral-400 truncate mt-0.5">
+                <span className="truncate">
+                  {headerProgress.prereqName
+                    ? `${eventData.name} · محسوب على "${headerProgress.prereqName}"`
+                    : eventData.name}
                 </span>
-              )}
+                <span aria-hidden="true">·</span>
+                {isOnline ? (
+                  <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-semibold whitespace-nowrap">
+                    <Wifi className="w-3.5 h-3.5" />
+                    <span>متصل</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold whitespace-nowrap">
+                    <WifiOff className="w-3.5 h-3.5" />
+                    <span>أوفلاين</span>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 

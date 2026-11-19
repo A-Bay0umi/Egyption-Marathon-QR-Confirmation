@@ -26,29 +26,30 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'موزع مستلزمات الماراثون - Marathon Check-in',
+  title: 'EM QR — Egyptian Marathon QR',
   description:
-    'نظام توزيع مستلزمات سباقات الماراثون وفحص الباركود مع دعم العمل بدون إنترنت ومزامنة Google Sheets',
+    'نظام توزيع مستلزمات الماراثون وفحص الباركود EM QR مع دعم العمل بدون إنترنت ومزامنة Firebase',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'ماراثون كيت',
+    title: 'EM QR',
   },
   icons: {
-    icon: '/icon.svg',
-    apple: '/apple-touch-icon.png',
+    icon: '/logo.png',
+    shortcut: '/logo.png',
+    apple: '/logo.png',
   },
   openGraph: {
-    title: 'موزع مستلزمات الماراثون - Marathon Check-in',
+    title: 'EM QR — Egyptian Marathon QR',
     description:
-      'نظام توزيع مستلزمات سباقات الماراثون وفحص الباركود مع دعم العمل بدون إنترنت ومزامنة Google Sheets',
+      'نظام توزيع مستلزمات الماراثون وفحص الباركود EM QR مع دعم العمل بدون إنترنت ومزامنة Firebase',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'موزع مستلزمات الماراثون - Marathon Check-in',
+    title: 'EM QR — Egyptian Marathon QR',
     description:
-      'نظام توزيع مستلزمات سباقات الماراثون وفحص الباركود مع دعم العمل بدون إنترنت ومزامنة Google Sheets',
+      'نظام توزيع مستلزمات الماراثون وفحص الباركود EM QR مع دعم العمل بدون إنترنت ومزامنة Firebase',
   },
 };
 

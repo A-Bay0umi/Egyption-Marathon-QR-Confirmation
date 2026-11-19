@@ -1,13 +1,10 @@
-const CACHE_NAME = 'marathon-kit-pwa-v2';
+const CACHE_NAME = 'em-qr-pwa-v3';
 const APP_SHELL_URLS = [
   '/',
   '/scan',
   '/admin',
   '/manifest.webmanifest',
-  '/icon.svg',
-  '/apple-touch-icon.png',
-  '/pwa-192x192.png',
-  '/pwa-512x512.png',
+  '/logo.png',
 ];
 
 self.addEventListener('install', (event) => {
@@ -71,7 +68,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static Next.js assets & icons: Stale-While-Revalidate
+  // Static Next.js assets & /logo.png: Stale-While-Revalidate
   event.respondWith(
     caches.match(request).then((cached) => {
       const fetchPromise = fetch(request)

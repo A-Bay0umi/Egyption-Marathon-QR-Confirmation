@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Eye, EyeOff, Lock, Shield } from 'lucide-react';
+import { Eye, EyeOff, Lock } from 'lucide-react';
+import { BrandLogo } from '@/components/BrandLogo';
 import { ADMIN_SESSION_STORAGE_KEY, verifyAdminPasscode } from '@/lib/admin-auth';
 
 interface AdminAuthGateProps {
@@ -34,14 +35,14 @@ export const AdminAuthGate: React.FC<AdminAuthGateProps> = ({ onPasscodeSuccess 
     <div className="min-h-screen bg-slate-50 dark:bg-black flex items-center justify-center p-4 sm:p-6">
       <main className="max-w-md w-full">
         <div className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 sm:p-8 shadow-sm">
-          <div className="w-12 h-12 rounded-2xl bg-slate-900 dark:bg-emerald-950 flex items-center justify-center mb-5">
-            <Shield className="w-6 h-6 text-emerald-400" />
+          <div className="mb-5">
+            <BrandLogo size={52} showSubtitle />
           </div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
             دخول الإدارة
           </h1>
           <p className="mt-1.5 text-sm text-slate-600 dark:text-neutral-400">
-            أدخل كلمة المرور للوصول إلى إدارة الماراثونات والمنظمين.
+            أدخل كلمة المرور للوصول إلى إدارة الماراثونات والمنظمين في EM QR.
           </p>
 
           {error && (

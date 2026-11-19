@@ -21,6 +21,7 @@ import { AdminAuthGate } from './AdminAuthGate';
 import { EventParticipantsTab } from './EventParticipantsTab';
 import { EventSettingsOrganizersTab } from './EventSettingsOrganizersTab';
 import { EventTasksMonitorTab } from './EventTasksMonitorTab';
+import { BrandLogo } from '@/components/BrandLogo';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { ADMIN_SESSION_STORAGE_KEY, isAdminSavedLocally } from '@/lib/admin-auth';
 import { testFirestoreConnection } from '@/lib/firebase';
@@ -228,15 +229,21 @@ export const AdminDashboardApp: React.FC = () => {
                 <ArrowRight className="w-4 h-4" />
                 <span>الماراثونات</span>
               </button>
-            ) : null}
+            ) : (
+              <BrandLogo size={38} showText={false} />
+            )}
 
             <div className="min-w-0">
               <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">
-                {selectedEvent ? selectedEvent.name : 'إدارة الماراثونات'}
+                {selectedEvent ? selectedEvent.name : 'EM QR — إدارة الماراثونات'}
               </h1>
-              {selectedEvent && (
+              {selectedEvent ? (
                 <div className="text-xs text-slate-500 dark:text-neutral-400 truncate font-mono-num">
                   {selectedEvent.date} · {selectedEvent.isActive ? 'الإيفنت الشغال حالياً' : 'غير مفعّل'}
+                </div>
+              ) : (
+                <div dir="ltr" className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 truncate text-right">
+                  Egyptian Marathon QR
                 </div>
               )}
             </div>

@@ -231,7 +231,7 @@ export function useWebAudio() {
   }, [ensureMediaElement, ensureWavUrl, getContextAndMaster]);
 
   const vibrateLight = useCallback(() => {
-    triggerHaptic(30);
+    triggerHaptic(55);
   }, []);
 
   // Triggers both harmonized audio pipelines AT THE EXACT SAME INSTANT (t=0) plus vibration.
@@ -305,15 +305,15 @@ export function useWebAudio() {
   );
 
   const playSuccessSound = useCallback(() => {
-    triggerSimultaneousDualAudio('success', [35, 30, 45]);
+    triggerSimultaneousDualAudio('success', [65, 35, 85]);
   }, [triggerSimultaneousDualAudio]);
 
   const playDuplicateAlertSound = useCallback(() => {
-    triggerSimultaneousDualAudio('duplicate', [60, 40, 60]);
+    triggerSimultaneousDualAudio('duplicate', [110, 45, 110]);
   }, [triggerSimultaneousDualAudio]);
 
   const playNotFoundSound = useCallback(() => {
-    triggerSimultaneousDualAudio('notFound', [45, 35, 45]);
+    triggerSimultaneousDualAudio('notFound', [85, 40, 85]);
   }, [triggerSimultaneousDualAudio]);
 
   return {

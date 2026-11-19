@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -54,6 +54,7 @@ export const AdminDashboardApp: React.FC = () => {
   const [eventsLoaded, setEventsLoaded] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<EventTab>('tasks');
+  const didAutoSelectActiveRef = useRef(false);
 
   // Selected event sub-data from Firestore
   const [eventParticipants, setEventParticipants] = useState<Participant[]>([]);
@@ -98,6 +99,13 @@ export const AdminDashboardApp: React.FC = () => {
         setEvents(list);
         setEventsLoaded(true);
         setFirestoreError(null);
+        if (!didAutoSelectActiveRef.current) {
+          didAutoSelectActiveRef.current = true;
+          const activeEv = list.find((ev) => ev.isActive);
+          if (activeEv) {
+            setSelectedEventId((prev) => prev ?? activeEv.id);
+          }
+        }
       },
       (err) => {
         setFirestoreError(err.message);
@@ -138,6 +146,7 @@ export const AdminDashboardApp: React.FC = () => {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
     }
+    didAutoSelectActiveRef.current = false;
     setIsAuthenticated(false);
     setSelectedEventId(null);
   };

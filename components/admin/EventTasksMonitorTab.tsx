@@ -7,6 +7,8 @@ import {
   CheckCircle2,
   Clock,
   Download,
+  Link2,
+  Lock,
   RotateCcw,
   Search,
 } from 'lucide-react';
@@ -16,6 +18,8 @@ import {
   extractParticipantDisplayName,
   formatArabicTime,
   formatRelativeArabicTime,
+  getPrerequisiteItem,
+  isPrerequisiteMet,
   matchesSearchQuery,
 } from '@/lib/marathon-logic';
 import type { ActivityLog, DeliverableItem, MarathonEvent, Participant } from '@/lib/types';
@@ -34,7 +38,7 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
   const [selectedTaskId, setSelectedTaskId] = useState<string>(
     event.deliverableItems[0]?.id ?? ''
   );
-  const [statusFilter, setStatusFilter] = useState<'all' | 'delivered' | 'pending'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'delivered' | 'pending'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [undoingKey, setUndoingKey] = useState<string | null>(null);
   const [showLogs, setShowLogs] = useState(false);
@@ -51,6 +55,11 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
     [event.deliverableItems, activeTaskId]
   );
 
+  const activePrereq = useMemo(
+    () => (activeTask ? getPrerequisiteItem(activeTask, event.deliverableItems) : null),
+    [activeTask, event.deliverableItems]
+  );
+
   const stats = useMemo(
     () => computeEventStats(participants, event.deliverableItems),
     [participants, event.deliverableItems]
@@ -62,11 +71,13 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
       if (q && !matchesSearchQuery(p, q)) return false;
       if (!activeTask) return true;
       const isDelivered = p.deliveries?.[activeTask.id]?.status === 'delivered';
+      const prereqOk = isPrerequisiteMet(p, activeTask, event.deliverableItems);
       if (statusFilter === 'delivered') return isDelivered;
+      if (statusFilter === 'ready') return !isDelivered && prereqOk;
       if (statusFilter === 'pending') return !isDelivered;
       return true;
     });
-  }, [participants, searchQuery, activeTask, statusFilter]);
+  }, [participants, searchQuery, activeTask, statusFilter, event.deliverableItems]);
 
   const handleUndo = async (participant: Participant, item: DeliverableItem) => {
     const key = `${participant.barcode}-${item.id}`;
@@ -170,31 +181,43 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
               key={st.itemId}
               type="button"
               onClick={() => setSelectedTaskId(st.itemId)}
-              className={`text-right rounded-2xl border p-4 transition-all min-h-[96px] ${
+              className={`text-right rounded-2xl border p-4 transition-all min-h-[104px] flex flex-col justify-between ${
                 isSelected
                   ? 'border-emerald-600 bg-emerald-50/70 dark:bg-emerald-950/40 ring-1 ring-emerald-600'
                   : 'border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 hover:border-slate-300 dark:hover:border-neutral-700'
               }`}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
-                  {st.itemName}
-                </span>
-                <span className="text-xs font-bold font-mono-num text-emerald-700 dark:text-emerald-400 shrink-0">
-                  {st.delivered} / {st.total}
-                </span>
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                    {st.itemName}
+                  </span>
+                  <span className="text-xs font-bold font-mono-num text-emerald-700 dark:text-emerald-400 shrink-0">
+                    {st.delivered} / {st.total}
+                  </span>
+                </div>
+                {st.prerequisiteName && (
+                  <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 dark:text-emerald-300">
+                    <Link2 className="w-3 h-3 shrink-0" />
+                    <span className="truncate">
+                      من أصل {st.total} أتموا &quot;{st.prerequisiteName}&quot;
+                    </span>
+                  </div>
+                )}
               </div>
 
-              <div className="mt-3 w-full h-2 rounded-full bg-slate-200 dark:bg-neutral-800 overflow-hidden">
-                <div
-                  className="h-full bg-emerald-600 transition-all"
-                  style={{ width: `${st.percentage}%` }}
-                />
-              </div>
+              <div className="mt-3">
+                <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-neutral-800 overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-600 transition-all"
+                    style={{ width: `${st.percentage}%` }}
+                  />
+                </div>
 
-              <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-neutral-400 font-mono-num">
-                <span>{st.percentage}% مكتمل</span>
-                <span>متبقي {remaining}</span>
+                <div className="mt-2 flex items-center justify-between text-xs text-slate-500 dark:text-neutral-400 font-mono-num">
+                  <span>{st.percentage}% مكتمل</span>
+                  <span>متبقي {remaining}</span>
+                </div>
               </div>
             </button>
           );
@@ -249,13 +272,17 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
               {/* Segmented Filter */}
-              <div className="inline-flex rounded-xl bg-slate-100 dark:bg-neutral-900 p-1 border border-slate-200 dark:border-neutral-800">
+              <div className="inline-flex rounded-xl bg-slate-100 dark:bg-neutral-900 p-1 border border-slate-200 dark:border-neutral-800 overflow-x-auto">
                 {(
                   [
                     { id: 'all', label: 'الكل' },
+                    ...(activePrereq ? [{ id: 'ready' as const, label: 'جاهز الآن' }] : []),
                     { id: 'delivered', label: 'تم التسليم' },
                     { id: 'pending', label: 'لم يستلم' },
-                  ] as const
+                  ] satisfies Array<{
+                    id: 'all' | 'ready' | 'delivered' | 'pending';
+                    label: string;
+                  }>
                 ).map((opt) => (
                   <button
                     key={opt.id}
@@ -353,6 +380,11 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
                             <span>إلغاء التسليم</span>
                           </button>
                         </>
+                      ) : activePrereq && !isPrerequisiteMet(p, activeTask, event.deliverableItems) ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 dark:text-amber-400">
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>بانتظار &quot;{activePrereq.name}&quot;</span>
+                        </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 dark:text-neutral-400">
                           <Clock className="w-3.5 h-3.5" />

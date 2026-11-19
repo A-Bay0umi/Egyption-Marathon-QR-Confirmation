@@ -9,7 +9,7 @@
         "name": { "type": "string", "minLength": 1, "maxLength": 200 },
         "date": { "type": "string", "minLength": 1, "maxLength": 40 },
         "isActive": { "type": "boolean" },
-        "deliverableItems": { "type": "array", "description": "Bounded list of deliverable kit items (max 20)." },
+        "deliverableItems": { "type": "array", "description": "Bounded list of deliverable kit items (max 20), each optionally referencing dependsOnItemId for sequential chains." },
         "displayFields": { "type": "array", "description": "Bounded list of Excel column names displayed to organizers (max 20)." },
         "displayLabels": { "type": "object", "description": "Optional custom Arabic labels for display fields." },
         "searchFields": { "type": "array", "description": "Bounded list of fields used for smart fallback search (max 10)." },

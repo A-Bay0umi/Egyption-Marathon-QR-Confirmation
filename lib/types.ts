@@ -1,6 +1,7 @@
 export interface DeliverableItem {
   id: string;
   name: string;
+  dependsOnItemId?: string;
 }
 
 export interface DeliveryRecord {
@@ -82,5 +83,7 @@ export interface ItemProgressStat {
   itemName: string;
   delivered: number;
   total: number;
+  totalParticipants: number;
+  prerequisiteName?: string;
   percentage: number;
 }

@@ -250,6 +250,16 @@ export function subscribeEventLogs(
   );
 }
 
+function sanitizeDeliverableItems(items: DeliverableItem[]): DeliverableItem[] {
+  return items.map((item) => {
+    const clean: DeliverableItem = { id: item.id, name: item.name.trim() };
+    if (item.dependsOnItemId) {
+      clean.dependsOnItemId = item.dependsOnItemId;
+    }
+    return clean;
+  });
+}
+
 // ---------- Event Mutations ----------
 
 export async function createEventDoc(params: {
@@ -276,7 +286,7 @@ export async function createEventDoc(params: {
     name: params.name.trim(),
     date: params.date.trim() || new Date().toISOString().slice(0, 10),
     isActive: params.setAsActive,
-    deliverableItems: params.deliverableItems,
+    deliverableItems: sanitizeDeliverableItems(params.deliverableItems),
     displayFields: ['الاسم', 'رقم الصدر', 'مقاس التيشيرت', 'رقم الموبايل'],
     searchFields: ['الاسم', 'رقم الصدر', 'رقم الموبايل'],
     totalParticipants: 0,
@@ -318,8 +328,12 @@ export async function updateEventDoc(
   >
 ): Promise<void> {
   const { db } = getFirebaseServices();
+  const cleanPatch = { ...patch };
+  if (cleanPatch.deliverableItems) {
+    cleanPatch.deliverableItems = sanitizeDeliverableItems(cleanPatch.deliverableItems);
+  }
   try {
-    await updateDoc(doc(db, 'events', eventId), patch);
+    await updateDoc(doc(db, 'events', eventId), cleanPatch);
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `events/${eventId}`);
   }
@@ -549,15 +563,17 @@ export async function commitAtomicDelivery(params: {
   organizer: Organizer;
   item: DeliverableItem;
   displayFields: string[];
+  allItems?: DeliverableItem[];
   isOnline: boolean;
 }) {
-  const { eventId, participant, organizer, item, displayFields, isOnline } = params;
+  const { eventId, participant, organizer, item, displayFields, allItems, isOnline } = params;
   const localCheck = attemptLocalDelivery({
     eventId,
     participant,
     organizer,
     item,
     displayFields,
+    allItems,
   });
 
   if (!localCheck.ok) {
@@ -584,6 +600,12 @@ export async function commitAtomicDelivery(params: {
           throw new Error('NOT_FOUND');
         }
         const currentDeliveries = pSnap.data().deliveries ?? {};
+        if (
+          item.dependsOnItemId &&
+          currentDeliveries[item.dependsOnItemId]?.status !== 'delivered'
+        ) {
+          throw new Error('PREREQUISITE_NOT_MET');
+        }
         if (currentDeliveries[item.id]?.status === 'delivered') {
           throw new Error('ALREADY_DELIVERED');
         }
@@ -617,6 +639,16 @@ export async function commitAtomicDelivery(params: {
       }
       if (err instanceof Error && err.message === 'UNAUTHORIZED_ITEM') {
         return { ok: false as const, reason: 'unauthorized_item' as const };
+      }
+      if (err instanceof Error && err.message === 'PREREQUISITE_NOT_MET') {
+        const missingItemName =
+          allItems?.find((i) => i.id === item.dependsOnItemId)?.name ?? 'الخطوة السابقة';
+        return {
+          ok: false as const,
+          reason: 'prerequisite_not_met' as const,
+          missingItemId: item.dependsOnItemId,
+          missingItemName,
+        };
       }
       if (err instanceof Error && err.message === 'ALREADY_DELIVERED') {
         return {

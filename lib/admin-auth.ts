@@ -67,6 +67,49 @@ export function buildOrganizerMagicUrl(
   return `${cleanOrigin}/?event=${encodeURIComponent(targetEventId)}&token=${encodeURIComponent(org.magicToken)}`;
 }
 
+export function parseOrganizerMagicInput(raw: string): SavedOrganizerSession | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // 1. Try matching full URL or query string anywhere in pasted WhatsApp text
+  const urlQueryMatch = trimmed.match(/event=([a-zA-Z0-9_\-]+)&token=([a-zA-Z0-9_\-]+)/);
+  if (urlQueryMatch?.[1] && urlQueryMatch?.[2]) {
+    return {
+      eventId: decodeURIComponent(urlQueryMatch[1]),
+      token: decodeURIComponent(urlQueryMatch[2]),
+    };
+  }
+
+  // Try reversed param order (?token=...&event=...)
+  const revQueryMatch = trimmed.match(/token=([a-zA-Z0-9_\-]+)&event=([a-zA-Z0-9_\-]+)/);
+  if (revQueryMatch?.[1] && revQueryMatch?.[2]) {
+    return {
+      eventId: decodeURIComponent(revQueryMatch[2]),
+      token: decodeURIComponent(revQueryMatch[1]),
+    };
+  }
+
+  // 2. Try compact activation code format: evt_xxx:ORG-xxx
+  const codeMatch = trimmed.match(/(evt_[a-zA-Z0-9_\-]+)\s*:\s*(ORG-[a-zA-Z0-9_\-]+)/i);
+  if (codeMatch?.[1] && codeMatch?.[2]) {
+    return {
+      eventId: codeMatch[1],
+      token: codeMatch[2].toUpperCase(),
+    };
+  }
+
+  // Generic id:token format
+  const genericColonMatch = trimmed.match(/^([a-zA-Z0-9_\-]{3,64}):([a-zA-Z0-9_\-]{3,64})$/);
+  if (genericColonMatch?.[1] && genericColonMatch?.[2]) {
+    return {
+      eventId: genericColonMatch[1],
+      token: genericColonMatch[2],
+    };
+  }
+
+  return null;
+}
+
 export function buildOrganizerWhatsAppMessage(
   magicUrl: string,
   org: Organizer,
@@ -78,6 +121,8 @@ export function buildOrganizerWhatsAppMessage(
       .map((i) => i.name)
       .join('، ') || 'المهام المخصصة';
 
+  const targetEventId = event?.id || org.eventId;
+
   return [
     `مرحباً ${org.name} 👋`,
     `تم تفعيل حسابك في إيفنت "${event?.name ?? 'الماراثون'}"${org.boothName ? ` (${org.boothName})` : ''}.`,
@@ -85,8 +130,11 @@ export function buildOrganizerWhatsAppMessage(
     `🔗 رابط الدخول الخاص بك:`,
     magicUrl,
     '',
+    `🔑 كود التفعيل داخل التطبيق المثبّت:`,
+    `${targetEventId}:${org.magicToken}`,
+    '',
     `📋 الوظائف / المهام المخصصة لك: ${rolesList}`,
-    `📱 يتم حفظ تسجيل دخولك تلقائياً على هاتفك بمجرد فتح الرابط.`,
+    `📱 يتم حفظ تسجيل دخولك تلقائياً على هاتفك بمجرد فتح الرابط أو لصقه داخل التطبيق.`,
   ].join('\n');
 }
 

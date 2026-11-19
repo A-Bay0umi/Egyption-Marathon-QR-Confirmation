@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   AlertTriangle,
   CheckCircle2,
+  Link2,
   Lock,
   Moon,
   Search,
@@ -27,6 +28,7 @@ import { useWebAudio } from '@/hooks/useWebAudio';
 import {
   clearOrganizerSessionLocally,
   isAdminSavedLocally,
+  parseOrganizerMagicInput,
   readOrganizerSessionLocally,
   saveOrganizerSessionLocally,
   type SavedOrganizerSession,
@@ -40,8 +42,11 @@ import {
   subscribeSingleEvent,
 } from '@/lib/firestore-store';
 import {
+  countEligibleForItem,
   extractParticipantDisplayName,
   formatArabicTime,
+  getPrerequisiteItem,
+  isPrerequisiteMet,
   matchesSearchQuery,
   normalizeBarcode,
 } from '@/lib/marathon-logic';
@@ -50,6 +55,7 @@ import type { DeliverableItem, MarathonEvent, Organizer, Participant } from '@/l
 const THEME_STORAGE_KEY = 'marathon_high_contrast_dark';
 
 export const OrganizerScannerApp: React.FC = () => {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const isOnline = useOnlineStatus();
   const { playSuccessSound, playDuplicateAlertSound, playNotFoundSound } = useWebAudio();
@@ -58,6 +64,15 @@ export const OrganizerScannerApp: React.FC = () => {
   const [session, setSession] = useState<SavedOrganizerSession | null>(null);
   const [adminLoggedIn, setAdminLoggedIn] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+
+  // Manual link/code activation inside standalone installed PWA
+  const [invitePasteInput, setInvitePasteInput] = useState('');
+  const [invitePasteError, setInvitePasteError] = useState<string | null>(null);
+
+  // Hidden Admin shortcut gesture state (5 rapid taps OR 1.5s long-press — zero visible UI/hints)
+  const tapCountRef = useRef(0);
+  const lastTapAtRef = useRef(0);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Live Firestore data for the organizer's assigned event
   const [eventData, setEventData] = useState<MarathonEvent | null>(null);
@@ -117,7 +132,6 @@ export const OrganizerScannerApp: React.FC = () => {
       setOrganizerLoaded(true);
     });
 
-    // Also keep fallback list subscription in case composite index is still warming
     const unsubOrgFallback = subscribeEventOrganizers(session.eventId, (list) => {
       const found = list.find((o) => o.magicToken === session.token) ?? null;
       if (found) {
@@ -136,6 +150,50 @@ export const OrganizerScannerApp: React.FC = () => {
     };
   }, [session]);
 
+  const handleSecretAdminTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTapAtRef.current > 2000) {
+      tapCountRef.current = 0;
+    }
+    lastTapAtRef.current = now;
+    tapCountRef.current += 1;
+    if (tapCountRef.current >= 5) {
+      tapCountRef.current = 0;
+      router.push('/admin');
+    }
+  }, [router]);
+
+  const handleSecretLongPressStart = useCallback(() => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      router.push('/admin');
+    }, 1500);
+  }, [router]);
+
+  const handleSecretLongPressEnd = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  const handleActivatePastedInvite = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseOrganizerMagicInput(invitePasteInput);
+    if (!parsed) {
+      setInvitePasteError(
+        'لم يتم التعرف على رابط أو كود التفعيل. الصق رابط الدعوة أو رسالة الواتساب كاملة.'
+      );
+      return;
+    }
+    setInvitePasteError(null);
+    saveOrganizerSessionLocally(parsed);
+    setEventLoaded(false);
+    setOrganizerLoaded(false);
+    setSession(parsed);
+    setInvitePasteInput('');
+  };
+
   const assignedDeliverables: DeliverableItem[] = useMemo(() => {
     if (!eventData || !organizer) return [];
     return eventData.deliverableItems.filter((item) =>
@@ -150,6 +208,78 @@ export const OrganizerScannerApp: React.FC = () => {
     const match = assignedDeliverables.find((i) => i.id === selectedRoleId);
     return match ? [match] : assignedDeliverables;
   }, [assignedDeliverables, selectedRoleId]);
+
+  // Chained counters per assigned role (based on prerequisite completions)
+  const roleStatsMap = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        deliveredByMe: number;
+        totalDelivered: number;
+        eligible: number;
+        prerequisiteName: string | null;
+      }
+    >();
+    if (!eventData || !organizer) return map;
+
+    for (const item of assignedDeliverables) {
+      let deliveredByMe = 0;
+      let totalDelivered = 0;
+      for (const p of participants) {
+        const rec = p.deliveries?.[item.id];
+        if (rec?.status === 'delivered') {
+          totalDelivered += 1;
+          if (rec.deliveredByOrganizerId === organizer.id) {
+            deliveredByMe += 1;
+          }
+        }
+      }
+      const { eligible, prerequisiteItem } = countEligibleForItem(
+        participants,
+        item,
+        eventData.deliverableItems
+      );
+      map.set(item.id, {
+        deliveredByMe,
+        totalDelivered,
+        eligible,
+        prerequisiteName: prerequisiteItem?.name ?? null,
+      });
+    }
+    return map;
+  }, [assignedDeliverables, eventData, organizer, participants]);
+
+  // Header counter: when 1 role is active, count strictly against its prerequisite!
+  const headerProgress = useMemo(() => {
+    if (!eventData || !organizer) {
+      return { count: 0, target: 0, prereqName: null as string | null };
+    }
+    if (activeRoleItems.length === 1) {
+      const stat = roleStatsMap.get(activeRoleItems[0].id);
+      if (stat) {
+        return {
+          count: stat.deliveredByMe,
+          target: stat.eligible,
+          prereqName: stat.prerequisiteName,
+        };
+      }
+    }
+    // Multiple roles combined ('all'): sum eligible targets across active roles or fall back cleanly
+    let sumEligible = 0;
+    let sumDeliveredByMe = 0;
+    for (const item of activeRoleItems) {
+      const stat = roleStatsMap.get(item.id);
+      if (stat) {
+        sumEligible += stat.eligible;
+        sumDeliveredByMe += stat.deliveredByMe;
+      }
+    }
+    return {
+      count: sumDeliveredByMe || organizer.deliveredCount,
+      target: sumEligible || eventData.totalParticipants || participants.length,
+      prereqName: null as string | null,
+    };
+  }, [activeRoleItems, eventData, organizer, participants.length, roleStatsMap]);
 
   const selectedParticipant = useMemo(() => {
     if (!selectedBarcode) return null;
@@ -175,16 +305,19 @@ export const OrganizerScannerApp: React.FC = () => {
       setSearchQuery('');
       setFeedbackBanner(null);
 
-      const hasAlreadyDelivered = activeRoleItems.some(
-        (item) => participant.deliveries?.[item.id]?.status === 'delivered'
-      );
-      if (hasAlreadyDelivered) {
+      const allItems = eventData?.deliverableItems ?? [];
+      const hasBlockOrDuplicate = activeRoleItems.some((item) => {
+        const already = participant.deliveries?.[item.id]?.status === 'delivered';
+        const missingPrereq = !isPrerequisiteMet(participant, item, allItems);
+        return already || missingPrereq;
+      });
+      if (hasBlockOrDuplicate) {
         playDuplicateAlertSound();
       } else {
         playSuccessSound();
       }
     },
-    [activeRoleItems, playDuplicateAlertSound, playSuccessSound]
+    [activeRoleItems, eventData?.deliverableItems, playDuplicateAlertSound, playSuccessSound]
   );
 
   const handleBarcodeScanned = useCallback(
@@ -219,6 +352,7 @@ export const OrganizerScannerApp: React.FC = () => {
         organizer,
         item,
         displayFields: eventData.displayFields,
+        allItems: eventData.deliverableItems,
         isOnline,
       });
 
@@ -227,6 +361,12 @@ export const OrganizerScannerApp: React.FC = () => {
         setFeedbackBanner({
           type: 'success',
           text: `تم تسليم "${item.name}" بنجاح`,
+        });
+      } else if (result.reason === 'prerequisite_not_met') {
+        playDuplicateAlertSound();
+        setFeedbackBanner({
+          type: 'warning',
+          text: `⛔ لا يمكن تسليم "${item.name}" قبل إتمام "${result.missingItemName ?? 'الخطوة السابقة'}" أولاً!`,
         });
       } else if (result.reason === 'already_delivered') {
         playDuplicateAlertSound();
@@ -267,15 +407,25 @@ export const OrganizerScannerApp: React.FC = () => {
     );
   }
 
-  // Strictly Locked Gate when no magic link has been opened on this device
+  // Strictly Locked Gate when no magic link has been opened / pasted in this app container
   if (!session) {
     return (
       <div className="min-h-screen bg-slate-50 dark:bg-black flex flex-col justify-between p-4 sm:p-6">
-        <header className="max-w-lg w-full mx-auto flex items-center justify-between gap-4 py-2">
-          <span className="text-base font-bold text-slate-900 dark:text-white">
+        <header className="max-w-lg w-full mx-auto flex items-center justify-between gap-3 py-2">
+          <button
+            type="button"
+            onClick={handleSecretAdminTap}
+            onTouchStart={handleSecretLongPressStart}
+            onTouchEnd={handleSecretLongPressEnd}
+            onMouseDown={handleSecretLongPressStart}
+            onMouseUp={handleSecretLongPressEnd}
+            onMouseLeave={handleSecretLongPressEnd}
+            className="text-base font-bold text-slate-900 dark:text-white select-none text-right cursor-default"
+          >
             نظام توزيع الماراثون
-          </span>
+          </button>
           <div className="flex items-center gap-2">
+            <PWAInstallButton compact />
             {adminLoggedIn && (
               <Link
                 href="/admin"
@@ -296,28 +446,66 @@ export const OrganizerScannerApp: React.FC = () => {
           </div>
         </header>
 
-        <main className="max-w-lg w-full mx-auto my-auto py-8">
-          <div className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 sm:p-8 shadow-sm text-center">
-            <div className="w-14 h-14 rounded-2xl bg-slate-900 dark:bg-emerald-950 flex items-center justify-center mx-auto mb-4">
-              <Lock className="w-7 h-7 text-emerald-400" />
+        <main className="max-w-lg w-full mx-auto my-auto py-6">
+          <div className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 sm:p-8 shadow-sm text-center space-y-5">
+            <div>
+              <div className="w-14 h-14 rounded-2xl bg-slate-900 dark:bg-emerald-950 flex items-center justify-center mx-auto mb-4">
+                <Lock className="w-7 h-7 text-emerald-400" />
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                الدخول عبر رابط المنظم فقط
+              </h1>
+              <p className="mt-2.5 text-sm text-slate-600 dark:text-neutral-300 leading-relaxed">
+                افتح الرابط المرسل لك على واتساب، أو الصق الرابط / كود التفعيل هنا إذا قمت بتثبيت التطبيق على هاتفك.
+              </p>
             </div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-              الدخول عبر رابط المنظم فقط
-            </h1>
-            <p className="mt-3 text-sm text-slate-600 dark:text-neutral-300 leading-relaxed">
-              هذا الموقع لا يعمل إلا من خلال رابط الدعوة الخاص بكل إيفنت الذي يرسله لك مدير السباق عبر واتساب.
-            </p>
 
-            <div className="mt-6 rounded-2xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/70 dark:bg-emerald-950/40 p-4 text-right flex items-start gap-3">
+            {/* Paste WhatsApp link or activation code inside standalone installed PWA */}
+            <form onSubmit={handleActivatePastedInvite} className="space-y-2.5 text-right">
+              <label
+                htmlFor="paste-invite-input"
+                className="block text-xs font-bold text-slate-700 dark:text-neutral-300"
+              >
+                تفعيل سريع داخل التطبيق (الصق الرابط أو رسالة الواتساب):
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  id="paste-invite-input"
+                  type="text"
+                  dir="ltr"
+                  value={invitePasteInput}
+                  onChange={(e) => {
+                    setInvitePasteInput(e.target.value);
+                    setInvitePasteError(null);
+                  }}
+                  placeholder="https://.../?event=...&token=..."
+                  className="flex-1 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[46px]"
+                />
+                <button
+                  type="submit"
+                  className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-5 py-2.5 text-sm min-h-[46px] whitespace-nowrap"
+                >
+                  تفعيل الدخول
+                </button>
+              </div>
+              {invitePasteError && (
+                <p className="text-xs font-semibold text-red-600">{invitePasteError}</p>
+              )}
+            </form>
+
+            <div className="rounded-2xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/70 dark:bg-emerald-950/40 p-4 text-right flex items-start gap-3">
               <Smartphone className="w-5 h-5 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
               <div className="text-xs sm:text-sm text-emerald-950 dark:text-emerald-200 leading-relaxed">
-                <strong>حفظ تلقائي لآخر إيفنت:</strong> عند فتح الرابط المرسل لك، يُحفظ الإيفنت وتفاصيل بوثك تلقائياً على هاتفك للعمل فوراً حتى عند انقطاع الإنترنت.
+                <strong>حفظ تلقائي لآخر إيفنت:</strong> بمجرد تفعيل الرابط، يُحفظ الإيفنت وتفاصيل بوثك تلقائياً على هاتفك للعمل فوراً حتى عند انقطاع الإنترنت.
               </div>
             </div>
           </div>
         </main>
 
-        <footer className="max-w-lg w-full mx-auto text-center text-xs text-slate-500 dark:text-neutral-500 py-2">
+        <footer
+          onClick={handleSecretAdminTap}
+          className="max-w-lg w-full mx-auto text-center text-xs text-slate-500 dark:text-neutral-500 py-2 select-none"
+        >
           مقيد بروابط الدعوة المعتمدة
         </footer>
       </div>
@@ -374,8 +562,6 @@ export const OrganizerScannerApp: React.FC = () => {
     );
   }
 
-  const totalTarget = eventData.totalParticipants || participants.length;
-
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-black text-slate-900 dark:text-white pb-16">
       {/* Compact Sticky Header */}
@@ -383,14 +569,32 @@ export const OrganizerScannerApp: React.FC = () => {
         <div className="max-w-4xl mx-auto px-3 sm:px-4 py-2.5 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-white truncate">
-              <span className="truncate">{organizer.name}</span>
+              <button
+                type="button"
+                onClick={handleSecretAdminTap}
+                onTouchStart={handleSecretLongPressStart}
+                onTouchEnd={handleSecretLongPressEnd}
+                onMouseDown={handleSecretLongPressStart}
+                onMouseUp={handleSecretLongPressEnd}
+                onMouseLeave={handleSecretLongPressEnd}
+                className="truncate text-right select-none cursor-default"
+              >
+                {organizer.name}
+              </button>
               <span aria-hidden="true" className="text-slate-400">·</span>
-              <span className="text-emerald-700 dark:text-emerald-400 font-mono-num whitespace-nowrap">
-                إنجازك: {organizer.deliveredCount} / {totalTarget}
+              <span
+                data-testid="organizer-chained-counter"
+                className="text-emerald-700 dark:text-emerald-400 font-mono-num whitespace-nowrap"
+              >
+                إنجازك: {headerProgress.count} / {headerProgress.target}
               </span>
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-neutral-400 truncate mt-0.5">
-              <span className="truncate">{eventData.name}</span>
+              <span className="truncate">
+                {headerProgress.prereqName
+                  ? `${eventData.name} · محسوب على "${headerProgress.prereqName}"`
+                  : eventData.name}
+              </span>
               <span aria-hidden="true">·</span>
               {isOnline ? (
                 <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-semibold whitespace-nowrap">
@@ -434,7 +638,7 @@ export const OrganizerScannerApp: React.FC = () => {
       </header>
 
       <main className="max-w-4xl mx-auto px-3 sm:px-4 pt-4 space-y-4">
-        {/* Multi-Role Switcher (shown whenever admin assigned >1 role to this organizer) */}
+        {/* Multi-Role Switcher with chained counter per role */}
         {assignedDeliverables.length > 1 && (
           <section
             aria-label="التبديل بين الوظائف"
@@ -455,20 +659,24 @@ export const OrganizerScannerApp: React.FC = () => {
               >
                 كل الوظائف ({assignedDeliverables.length})
               </button>
-              {assignedDeliverables.map((role) => (
-                <button
-                  key={role.id}
-                  type="button"
-                  onClick={() => setSelectedRoleId(role.id)}
-                  className={`rounded-xl px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 min-h-[40px] transition-colors ${
-                    selectedRoleId === role.id
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-slate-100 dark:bg-neutral-900 text-slate-700 dark:text-neutral-300'
-                  }`}
-                >
-                  {role.name}
-                </button>
-              ))}
+              {assignedDeliverables.map((role) => {
+                const stat = roleStatsMap.get(role.id);
+                return (
+                  <button
+                    key={role.id}
+                    type="button"
+                    onClick={() => setSelectedRoleId(role.id)}
+                    className={`rounded-xl px-3.5 py-2 text-xs font-bold whitespace-nowrap shrink-0 min-h-[40px] transition-colors font-mono-num ${
+                      selectedRoleId === role.id
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-100 dark:bg-neutral-900 text-slate-700 dark:text-neutral-300'
+                    }`}
+                  >
+                    {role.name}
+                    {stat ? ` (${stat.totalDelivered}/${stat.eligible})` : ''}
+                  </button>
+                );
+              })}
             </div>
           </section>
         )}
@@ -625,7 +833,7 @@ export const OrganizerScannerApp: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* Active Role(s) Action Buttons */}
+                    {/* Active Role(s) Action Buttons with Sequential Prerequisite Guards */}
                     <div className="space-y-2.5">
                       <h3 className="text-xs sm:text-sm font-bold text-slate-700 dark:text-neutral-300">
                         {activeRoleItems.length === 1
@@ -654,6 +862,31 @@ export const OrganizerScannerApp: React.FC = () => {
                                 <div className="mt-1 text-sm font-semibold text-red-800 dark:text-red-200 font-mono-num">
                                   بواسطة: {delivered.deliveredByOrganizerName} — الساعة{' '}
                                   {formatArabicTime(delivered.deliveredAt)}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          const prereqItem = getPrerequisiteItem(item, eventData.deliverableItems);
+                          const prereqOk = isPrerequisiteMet(
+                            selectedParticipant,
+                            item,
+                            eventData.deliverableItems
+                          );
+
+                          if (prereqItem && !prereqOk) {
+                            return (
+                              <div
+                                key={item.id}
+                                data-testid={`prereq-blocked-${item.id}`}
+                                className="rounded-2xl border-2 border-amber-500 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/60 p-3.5 text-amber-950 dark:text-amber-100"
+                              >
+                                <div className="flex items-center gap-2 text-base font-bold">
+                                  <Link2 className="w-5 h-5 text-amber-700 dark:text-amber-400 shrink-0" />
+                                  <span>⛔ لا يمكن تسليم {item.name} الآن</span>
+                                </div>
+                                <div className="mt-1 text-sm font-semibold text-amber-900 dark:text-amber-200">
+                                  يجب إتمام &quot;{prereqItem.name}&quot; لهذا المتسابق أولاً.
                                 </div>
                               </div>
                             );

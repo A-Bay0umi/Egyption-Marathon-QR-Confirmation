@@ -106,6 +106,60 @@ export function matchesSearchQuery(participant: Participant, rawQuery: string): 
   return false;
 }
 
+export function getPrerequisiteItem(
+  item: DeliverableItem,
+  allItems: DeliverableItem[]
+): DeliverableItem | null {
+  if (!item.dependsOnItemId) return null;
+  return allItems.find((i) => i.id === item.dependsOnItemId) ?? null;
+}
+
+export function isPrerequisiteMet(
+  participant: Participant,
+  item: DeliverableItem,
+  allItems: DeliverableItem[]
+): boolean {
+  const prereq = getPrerequisiteItem(item, allItems);
+  if (!prereq) return true;
+  return participant.deliveries?.[prereq.id]?.status === 'delivered';
+}
+
+export function countEligibleForItem(
+  participants: Participant[],
+  item: DeliverableItem,
+  allItems: DeliverableItem[]
+): { eligible: number; prerequisiteItem: DeliverableItem | null } {
+  const prerequisiteItem = getPrerequisiteItem(item, allItems);
+  if (!prerequisiteItem) {
+    return { eligible: participants.length, prerequisiteItem: null };
+  }
+  let eligible = 0;
+  for (const p of participants) {
+    if (p.deliveries?.[prerequisiteItem.id]?.status === 'delivered') {
+      eligible += 1;
+    }
+  }
+  return { eligible, prerequisiteItem };
+}
+
+export function wouldCreateDependencyCycle(
+  items: DeliverableItem[],
+  itemId: string,
+  candidatePrereqId: string
+): boolean {
+  if (!candidatePrereqId) return false;
+  if (candidatePrereqId === itemId) return true;
+  const map = new Map(items.map((i) => [i.id, i]));
+  let cursor: string | undefined = candidatePrereqId;
+  const visited = new Set<string>([itemId]);
+  while (cursor) {
+    if (visited.has(cursor)) return true;
+    visited.add(cursor);
+    cursor = map.get(cursor)?.dependsOnItemId;
+  }
+  return false;
+}
+
 export type DeliveryAttemptResult =
   | {
       ok: true;
@@ -116,8 +170,14 @@ export type DeliveryAttemptResult =
     }
   | {
       ok: false;
-      reason: 'organizer_frozen' | 'unauthorized_item' | 'already_delivered';
+      reason:
+        | 'organizer_frozen'
+        | 'unauthorized_item'
+        | 'already_delivered'
+        | 'prerequisite_not_met';
       existingDelivery?: DeliveryRecord;
+      missingItemId?: string;
+      missingItemName?: string;
     };
 
 export function extractParticipantDisplayName(
@@ -146,9 +206,10 @@ export function attemptLocalDelivery(params: {
   organizer: Organizer;
   item: DeliverableItem;
   displayFields: string[];
+  allItems?: DeliverableItem[];
   nowIso?: string;
 }): DeliveryAttemptResult {
-  const { eventId, participant, organizer, item, displayFields } = params;
+  const { eventId, participant, organizer, item, displayFields, allItems } = params;
   const nowIso = params.nowIso ?? new Date().toISOString();
 
   if (!organizer.isActive) {
@@ -157,6 +218,19 @@ export function attemptLocalDelivery(params: {
 
   if (!organizer.assignedItems.includes(item.id)) {
     return { ok: false, reason: 'unauthorized_item' };
+  }
+
+  if (item.dependsOnItemId) {
+    const prereqItem = allItems?.find((i) => i.id === item.dependsOnItemId);
+    const prereqValid = !allItems || Boolean(prereqItem);
+    if (prereqValid && participant.deliveries?.[item.dependsOnItemId]?.status !== 'delivered') {
+      return {
+        ok: false,
+        reason: 'prerequisite_not_met',
+        missingItemId: item.dependsOnItemId,
+        missingItemName: prereqItem?.name ?? 'الخطوة السابقة',
+      };
+    }
   }
 
   const existingDelivery = participant.deliveries?.[item.id];
@@ -249,7 +323,7 @@ export function computeEventStats(
   participants: Participant[],
   deliverableItems: DeliverableItem[]
 ): ItemProgressStat[] {
-  const total = participants.length;
+  const totalParticipants = participants.length;
   return deliverableItems.map((item) => {
     let delivered = 0;
     for (const p of participants) {
@@ -257,12 +331,19 @@ export function computeEventStats(
         delivered += 1;
       }
     }
-    const percentage = total > 0 ? Math.round((delivered / total) * 100) : 0;
+    const { eligible, prerequisiteItem } = countEligibleForItem(
+      participants,
+      item,
+      deliverableItems
+    );
+    const percentage = eligible > 0 ? Math.min(100, Math.round((delivered / eligible) * 100)) : 0;
     return {
       itemId: item.id,
       itemName: item.name,
       delivered,
-      total,
+      total: eligible,
+      totalParticipants,
+      prerequisiteName: prerequisiteItem?.name,
       percentage,
     };
   });

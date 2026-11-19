@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   ArrowRight,
   Calendar,
@@ -9,6 +10,7 @@ import {
   LogOut,
   Moon,
   Plus,
+  QrCode,
   Settings2,
   Sun,
   Trash2,
@@ -59,6 +61,7 @@ export const AdminDashboardApp: React.FC = () => {
   const [newDate, setNewDate] = useState('');
   const [newTaskInput, setNewTaskInput] = useState('');
   const [newTasks, setNewTasks] = useState<DeliverableItem[]>([]);
+  const [chainNewTasks, setChainNewTasks] = useState(false);
   const [setAsActiveOnCreate, setSetAsActiveOnCreate] = useState(true);
   const [creatingEvent, setCreatingEvent] = useState(false);
 
@@ -148,19 +151,26 @@ export const AdminDashboardApp: React.FC = () => {
     setCreatingEvent(true);
     setFirestoreError(null);
     try {
+      const preparedTasks: DeliverableItem[] = chainNewTasks
+        ? newTasks.map((t, idx) =>
+            idx > 0 ? { ...t, dependsOnItemId: newTasks[idx - 1].id } : t
+          )
+        : newTasks;
+
       const createdId = await createEventDoc({
         name: newName.trim(),
         date: newDate || new Date().toISOString().slice(0, 10),
-        deliverableItems: newTasks,
+        deliverableItems: preparedTasks,
         setAsActive: setAsActiveOnCreate || events.length === 0,
         existingEvents: events,
       });
       setNewName('');
       setNewTasks([]);
       setNewTaskInput('');
+      setChainNewTasks(false);
       setShowCreateModal(false);
       setSelectedEventId(createdId);
-      setActiveTab(newTasks.length > 0 ? 'tasks' : 'settings');
+      setActiveTab(preparedTasks.length > 0 ? 'tasks' : 'settings');
     } catch (err) {
       setFirestoreError(
         err instanceof Error ? err.message : 'تعذر حفظ الماراثون على Firebase'
@@ -234,6 +244,13 @@ export const AdminDashboardApp: React.FC = () => {
 
           <div className="flex items-center gap-2 shrink-0">
             <PWAInstallButton compact />
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 px-3 py-2 text-xs font-bold text-slate-700 dark:text-neutral-200 hover:bg-slate-100 dark:hover:bg-neutral-800 min-h-[42px]"
+            >
+              <QrCode className="w-4 h-4 text-emerald-600" />
+              <span className="hidden sm:inline">شاشة المسح</span>
+            </Link>
             <button
               type="button"
               onClick={toggleDarkMode}
@@ -530,25 +547,42 @@ export const AdminDashboardApp: React.FC = () => {
                 </div>
 
                 {newTasks.length > 0 && (
-                  <div className="mt-2.5 flex flex-wrap gap-2">
-                    {newTasks.map((t) => (
-                      <span
-                        key={t.id}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black px-2.5 py-1 text-xs font-semibold"
-                      >
-                        <span>{t.name}</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setNewTasks((prev) => prev.filter((item) => item.id !== t.id))
-                          }
-                          aria-label={`إزالة ${t.name}`}
-                          className="text-slate-400 hover:text-red-600"
+                  <div className="mt-2.5 space-y-2">
+                    <div className="flex flex-wrap gap-2">
+                      {newTasks.map((t, idx) => (
+                        <span
+                          key={t.id}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black px-2.5 py-1 text-xs font-semibold"
                         >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    ))}
+                          <span className="text-emerald-700 dark:text-emerald-400 font-mono-num">
+                            {idx + 1}.
+                          </span>
+                          <span>{t.name}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setNewTasks((prev) => prev.filter((item) => item.id !== t.id))
+                            }
+                            aria-label={`إزالة ${t.name}`}
+                            className="text-slate-400 hover:text-red-600"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+
+                    {newTasks.length >= 2 && (
+                      <label className="inline-flex items-center gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={chainNewTasks}
+                          onChange={(e) => setChainNewTasks(e.target.checked)}
+                          className="w-4 h-4 accent-emerald-600 rounded"
+                        />
+                        <span>تفعيل التسلسل التلقائي (كل مهمة تشترط إتمام التي قبلها)</span>
+                      </label>
+                    )}
                   </div>
                 )}
               </div>

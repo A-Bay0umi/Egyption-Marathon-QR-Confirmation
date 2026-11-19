@@ -6,14 +6,17 @@ import {
   autoSuggestColumnMapping,
   computeEventStats,
   generateSearchKeywords,
+  isPrerequisiteMet,
   matchesSearchQuery,
   normalizeBarcode,
+  wouldCreateDependencyCycle,
 } from './marathon-logic';
 import {
   buildOrganizerMagicUrl,
   buildOrganizerWhatsAppHref,
   buildOrganizerWhatsAppMessage,
   normalizeWhatsAppPhone,
+  parseOrganizerMagicInput,
   verifyAdminPasscode,
 } from './admin-auth';
 import type { DeliverableItem, MarathonEvent, Organizer, Participant } from './types';
@@ -229,6 +232,107 @@ test('normalizeWhatsAppPhone and organizer event magic links build cleanly with 
 
   const waHref = buildOrganizerWhatsAppHref(url, orgWithPhone, evt);
   assert.equal(waHref.startsWith('https://wa.me/201012345678?text='), true);
+
+  // Test standalone PWA paste parser on full URL, WhatsApp message, and compact code
+  assert.deepEqual(parseOrganizerMagicInput(url), { eventId: 'evt_1', token: 'TOKEN_A' });
+  assert.deepEqual(parseOrganizerMagicInput(msg), { eventId: 'evt_1', token: 'TOKEN_A' });
+  assert.deepEqual(parseOrganizerMagicInput('evt_123:ORG-XYZ999'), {
+    eventId: 'evt_123',
+    token: 'ORG-XYZ999',
+  });
+  assert.equal(parseOrganizerMagicInput('random invalid text'), null);
 });
+
+test('sequential task prerequisites block premature delivery and chain progress counters', () => {
+  const regItem: DeliverableItem = { id: 'reg', name: 'التسجيل' };
+  const chainedTshirt: DeliverableItem = {
+    id: 'tshirt',
+    name: 'التيشيرت',
+    dependsOnItemId: 'reg',
+  };
+  const chainedMedal: DeliverableItem = {
+    id: 'medal',
+    name: 'الميدالية',
+    dependsOnItemId: 'tshirt',
+  };
+  const allItems = [regItem, chainedTshirt, chainedMedal];
+
+  assert.equal(wouldCreateDependencyCycle(allItems, 'reg', 'medal'), true);
+  assert.equal(wouldCreateDependencyCycle(allItems, 'medal', 'reg'), false);
+  assert.equal(isPrerequisiteMet(sampleParticipant, chainedTshirt, allItems), false);
+
+  const blocked = attemptLocalDelivery({
+    eventId: 'evt_1',
+    participant: sampleParticipant,
+    organizer: sampleOrganizer,
+    item: chainedTshirt,
+    displayFields: ['الاسم'],
+    allItems,
+  });
+  assert.equal(blocked.ok, false);
+  if (!blocked.ok) {
+    assert.equal(blocked.reason, 'prerequisite_not_met');
+    assert.equal(blocked.missingItemName, 'التسجيل');
+  }
+
+  // Participant 1 completes Registration + T-shirt; Participant 2 completes Registration only; Participant 3 nothing
+  const p1: Participant = {
+    ...sampleParticipant,
+    barcode: 'RUN-1',
+    deliveries: {
+      reg: {
+        status: 'delivered',
+        deliveredByOrganizerId: 'org_1',
+        deliveredByOrganizerName: 'أحمد حسن',
+        deliveredAt: '2026-11-18T10:00:00Z',
+      },
+      tshirt: {
+        status: 'delivered',
+        deliveredByOrganizerId: 'org_1',
+        deliveredByOrganizerName: 'أحمد حسن',
+        deliveredAt: '2026-11-18T10:05:00Z',
+      },
+    },
+  };
+  const p2: Participant = {
+    ...sampleParticipant,
+    barcode: 'RUN-2',
+    deliveries: {
+      reg: {
+        status: 'delivered',
+        deliveredByOrganizerId: 'org_1',
+        deliveredByOrganizerName: 'أحمد حسن',
+        deliveredAt: '2026-11-18T10:01:00Z',
+      },
+    },
+  };
+  const p3: Participant = { ...sampleParticipant, barcode: 'RUN-3', deliveries: {} };
+
+  // Now p2 CAN receive T-shirt because reg is complete
+  const allowed = attemptLocalDelivery({
+    eventId: 'evt_1',
+    participant: p2,
+    organizer: sampleOrganizer,
+    item: chainedTshirt,
+    displayFields: ['الاسم'],
+    allItems,
+  });
+  assert.equal(allowed.ok, true);
+
+  const stats = computeEventStats([p1, p2, p3], allItems);
+  // Registration: 2 / 3 total participants (67%)
+  assert.equal(stats[0].delivered, 2);
+  assert.equal(stats[0].total, 3);
+  // T-shirt: 1 / 2 who completed Registration (50%)
+  assert.equal(stats[1].delivered, 1);
+  assert.equal(stats[1].total, 2);
+  assert.equal(stats[1].percentage, 50);
+  assert.equal(stats[1].prerequisiteName, 'التسجيل');
+  // Medal: 0 / 1 who completed T-shirt (0%)
+  assert.equal(stats[2].delivered, 0);
+  assert.equal(stats[2].total, 1);
+  assert.equal(stats[2].prerequisiteName, 'التيشيرت');
+});
+
 
 

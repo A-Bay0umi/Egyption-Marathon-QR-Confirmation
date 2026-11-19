@@ -1,10 +1,11 @@
-const CACHE_NAME = 'marathon-kit-pwa-v1';
+const CACHE_NAME = 'marathon-kit-pwa-v2';
 const APP_SHELL_URLS = [
   '/',
   '/scan',
   '/admin',
-  '/manifest.json',
+  '/manifest.webmanifest',
   '/icon.svg',
+  '/apple-touch-icon.png',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
 ];
@@ -12,7 +13,13 @@ const APP_SHELL_URLS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(APP_SHELL_URLS).catch(() => undefined);
+      return Promise.allSettled(
+        APP_SHELL_URLS.map((url) =>
+          fetch(url, { cache: 'reload' }).then((res) => {
+            if (res.ok) return cache.put(url, res);
+          })
+        )
+      );
     })
   );
   self.skipWaiting();
@@ -39,18 +46,25 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
-  // Navigation requests: Network-first with offline cache fallback
+  // Navigation requests (including installed PWA launch & /?event=...&token=...):
+  // Network-first, falling back to exact pathname cache, then '/'
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          if (response && response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(url.pathname, clone);
+            });
+          }
           return response;
         })
         .catch(async () => {
-          const cached = await caches.match(request);
-          if (cached) return cached;
+          const byFullUrl = await caches.match(request);
+          if (byFullUrl) return byFullUrl;
+          const byPath = await caches.match(url.pathname);
+          if (byPath) return byPath;
           return (await caches.match('/')) || Response.error();
         })
     );

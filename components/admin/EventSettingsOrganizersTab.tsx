@@ -2,9 +2,12 @@
 
 import React, { useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Check,
   Copy,
   Edit3,
+  Link2,
   ListChecks,
   MessageCircle,
   MessageSquareText,
@@ -13,6 +16,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Trash2,
+  Unlink,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -28,6 +32,7 @@ import {
   updateEventDoc,
   updateOrganizerDoc,
 } from '@/lib/firestore-store';
+import { wouldCreateDependencyCycle } from '@/lib/marathon-logic';
 import type { DeliverableItem, MarathonEvent, Organizer } from '@/lib/types';
 
 interface EventSettingsOrganizersTabProps {
@@ -78,9 +83,45 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    const nextItems = event.deliverableItems.filter((i) => i.id !== taskId);
+    const nextItems = event.deliverableItems
+      .filter((i) => i.id !== taskId)
+      .map((i) => (i.dependsOnItemId === taskId ? { id: i.id, name: i.name } : i));
     await updateEventDoc(event.id, { deliverableItems: nextItems });
     setAssignedItems((prev) => prev.filter((id) => id !== taskId));
+  };
+
+  const handleSetTaskPrerequisite = async (taskId: string, prereqId: string) => {
+    if (prereqId && wouldCreateDependencyCycle(event.deliverableItems, taskId, prereqId)) {
+      return;
+    }
+    const nextItems = event.deliverableItems.map((item) => {
+      if (item.id !== taskId) return item;
+      return prereqId ? { ...item, dependsOnItemId: prereqId } : { id: item.id, name: item.name };
+    });
+    await updateEventDoc(event.id, { deliverableItems: nextItems });
+  };
+
+  const handleMoveTask = async (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= event.deliverableItems.length) return;
+    const next = [...event.deliverableItems];
+    const [moved] = next.splice(index, 1);
+    next.splice(target, 0, moved);
+    await updateEventDoc(event.id, { deliverableItems: next });
+  };
+
+  const handleChainAllTasks = async () => {
+    const next = event.deliverableItems.map((item, idx) =>
+      idx === 0
+        ? { id: item.id, name: item.name }
+        : { ...item, dependsOnItemId: event.deliverableItems[idx - 1].id }
+    );
+    await updateEventDoc(event.id, { deliverableItems: next });
+  };
+
+  const handleUnchainAllTasks = async () => {
+    const next = event.deliverableItems.map((item) => ({ id: item.id, name: item.name }));
+    await updateEventDoc(event.id, { deliverableItems: next });
   };
 
   const toggleCreateRole = (id: string) => {
@@ -199,31 +240,107 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
           </button>
         </form>
 
+        {event.deliverableItems.length >= 2 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleChainAllTasks()}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-600/40 bg-emerald-50/70 dark:bg-emerald-950/30 px-3 py-2 text-xs font-bold text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 min-h-[38px]"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              <span>ربط بالتسلسل التلقائي (1 ← 2 ← 3)</span>
+            </button>
+            {event.deliverableItems.some((i) => Boolean(i.dependsOnItemId)) && (
+              <button
+                type="button"
+                onClick={() => void handleUnchainAllTasks()}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-neutral-800 px-3 py-2 text-xs font-bold text-slate-600 dark:text-neutral-300 hover:bg-slate-100 dark:hover:bg-neutral-900 min-h-[38px]"
+              >
+                <Unlink className="w-3.5 h-3.5" />
+                <span>إلغاء كل القيود</span>
+              </button>
+            )}
+          </div>
+        )}
+
         {event.deliverableItems.length === 0 ? (
           <p className="text-xs text-slate-500 dark:text-neutral-400">
             لا توجد مهام مضافة حتى الآن. أضف مهمة واحدة على الأقل لتوزيعها على المنظمين.
           </p>
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-neutral-800 border border-slate-200 dark:border-neutral-800 rounded-xl overflow-hidden">
-            {event.deliverableItems.map((item) => (
-              <div
-                key={item.id}
-                className="px-4 py-3 flex items-center justify-between gap-3 bg-slate-50/50 dark:bg-black/40"
-              >
-                <span className="text-sm font-bold text-slate-900 dark:text-white">
-                  {item.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteTask(item.id)}
-                  aria-label={`حذف مهمة ${item.name}`}
-                  className="inline-flex items-center gap-1 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 px-2.5 py-1.5 min-h-[36px]"
+            {event.deliverableItems.map((item, idx) => {
+              const availablePrereqs = event.deliverableItems.filter(
+                (cand) =>
+                  cand.id !== item.id &&
+                  !wouldCreateDependencyCycle(event.deliverableItems, item.id, cand.id)
+              );
+
+              return (
+                <div
+                  key={item.id}
+                  className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 dark:bg-black/40"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>حذف</span>
-                </button>
-              </div>
-            ))}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="inline-flex items-center justify-center rounded-lg bg-slate-200/80 dark:bg-neutral-800 px-2 py-1 text-[11px] font-bold font-mono-num text-slate-700 dark:text-neutral-200 shrink-0">
+                      {idx + 1}
+                    </span>
+                    <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                      {item.name}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {availablePrereqs.length > 0 && (
+                      <select
+                        aria-label={`الشرط المسبق لمهمة ${item.name}`}
+                        value={item.dependsOnItemId ?? ''}
+                        onChange={(e) => void handleSetTaskPrerequisite(item.id, e.target.value)}
+                        className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-white dark:bg-black px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-neutral-200 min-h-[38px]"
+                      >
+                        <option value="">بدون شرط مسبق</option>
+                        {availablePrereqs.map((prereq) => (
+                          <option key={prereq.id} value={prereq.id}>
+                            بعد إتمام: {prereq.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={idx === 0}
+                        onClick={() => void handleMoveTask(idx, -1)}
+                        aria-label={`تقديم ${item.name}`}
+                        className="p-2 rounded-lg border border-slate-200 dark:border-neutral-800 text-slate-600 dark:text-neutral-300 disabled:opacity-30 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={idx === event.deliverableItems.length - 1}
+                        onClick={() => void handleMoveTask(idx, 1)}
+                        aria-label={`تأخير ${item.name}`}
+                        className="p-2 rounded-lg border border-slate-200 dark:border-neutral-800 text-slate-600 dark:text-neutral-300 disabled:opacity-30 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteTask(item.id)}
+                      aria-label={`حذف مهمة ${item.name}`}
+                      className="inline-flex items-center gap-1 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 px-2.5 py-1.5 min-h-[36px]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>حذف</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>

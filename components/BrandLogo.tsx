@@ -17,7 +17,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   return (
     <div className="inline-flex items-center gap-2.5 min-w-0">
       <div
-        className="relative shrink-0 overflow-hidden rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-900"
+        className="relative shrink-0 overflow-hidden rounded-xl border border-slate-200 dark:border-neutral-700 bg-white"
         style={{ width: size, height: size }}
       >
         <Image
@@ -26,7 +26,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
           width={size}
           height={size}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover"
+          className="w-full h-full object-contain p-0.5"
           priority
         />
       </div>

@@ -42,7 +42,7 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'id', 'name', 'date', 'isActive', 'registrationStatus', 'registrationOpensAt', 'registrationClosesAt',
-        'deliverableItems', 'displayFields', 'displayLabels', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
+        'deliverableItems', 'displayFields', 'displayLabels', 'nameField', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
       ]) &&
       isValidId(data.id) &&
       data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
@@ -54,6 +54,7 @@ service cloud.firestore {
       data.deliverableItems is list && data.deliverableItems.size() <= 20 &&
       data.displayFields is list && data.displayFields.size() <= 20 &&
       (!('displayLabels' in data) || data.displayLabels is map) &&
+      (!('nameField' in data) || (data.nameField is string && data.nameField.size() <= 120)) &&
       data.searchFields is list && data.searchFields.size() <= 10 &&
       data.totalParticipants is int && data.totalParticipants >= 0 &&
       data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
@@ -127,7 +128,7 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'date', 'isActive', 'registrationStatus', 'registrationOpensAt', 'registrationClosesAt',
-          'deliverableItems', 'displayFields', 'displayLabels', 'searchFields', 'totalParticipants'
+          'deliverableItems', 'displayFields', 'displayLabels', 'nameField', 'searchFields', 'totalParticipants'
         ]);
       allow delete: if isValidId(eventId);
 

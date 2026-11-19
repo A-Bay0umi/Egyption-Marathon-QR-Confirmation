@@ -72,6 +72,8 @@ function mapEventDoc(id: string, data: Record<string, unknown>): MarathonEvent {
       data.displayLabels && typeof data.displayLabels === 'object'
         ? (data.displayLabels as Record<string, string>)
         : undefined,
+    nameField:
+      typeof data.nameField === 'string' && data.nameField ? data.nameField : undefined,
     searchFields: Array.isArray(data.searchFields) ? (data.searchFields as string[]) : [],
     totalParticipants: typeof data.totalParticipants === 'number' ? data.totalParticipants : 0,
     ownerUid: String(data.ownerUid ?? 'admin'),
@@ -370,6 +372,7 @@ export async function updateEventDoc(
       | 'deliverableItems'
       | 'displayFields'
       | 'displayLabels'
+      | 'nameField'
       | 'searchFields'
       | 'totalParticipants'
       | 'registrationStatus'
@@ -384,6 +387,9 @@ export async function updateEventDoc(
     cleanPatch.deliverableItems = sanitizeDeliverableItems(
       cleanPatch.deliverableItems as DeliverableItem[]
     );
+  }
+  if ('nameField' in patch) {
+    cleanPatch.nameField = patch.nameField?.trim() ? patch.nameField.trim() : deleteField();
   }
   if ('registrationOpensAt' in patch) {
     cleanPatch.registrationOpensAt = patch.registrationOpensAt
@@ -554,12 +560,13 @@ export async function batchImportParticipantsFirestore(params: {
   eventId: string;
   rows: Record<string, string>[];
   barcodeField: string;
+  nameField?: string;
   searchFields: string[];
   displayFields: string[];
   displayLabels: Record<string, string>;
   onProgress: (percent: number, processed: number, total: number) => void;
 }): Promise<number> {
-  const { eventId, rows, barcodeField, searchFields, displayFields, displayLabels, onProgress } = params;
+  const { eventId, rows, barcodeField, nameField, searchFields, displayFields, displayLabels, onProgress } = params;
   const { db } = getFirebaseServices();
 
   const built: Participant[] = [];
@@ -610,6 +617,7 @@ export async function batchImportParticipantsFirestore(params: {
       displayFields,
       displayLabels,
       searchFields,
+      nameField: nameField?.trim() ? nameField.trim() : deleteField(),
       totalParticipants: total,
     });
     return total;
@@ -626,16 +634,18 @@ export async function commitAtomicDelivery(params: {
   organizer: Organizer;
   item: DeliverableItem;
   displayFields: string[];
+  nameField?: string;
   allItems?: DeliverableItem[];
   isOnline: boolean;
 }) {
-  const { eventId, participant, organizer, item, displayFields, allItems, isOnline } = params;
+  const { eventId, participant, organizer, item, displayFields, nameField, allItems, isOnline } = params;
   const localCheck = attemptLocalDelivery({
     eventId,
     participant,
     organizer,
     item,
     displayFields,
+    nameField,
     allItems,
   });
 
@@ -759,14 +769,16 @@ export async function commitAdminUndo(params: {
   item: DeliverableItem;
   adminName: string;
   displayFields: string[];
+  nameField?: string;
 }): Promise<void> {
-  const { eventId, participant, item, adminName, displayFields } = params;
+  const { eventId, participant, item, adminName, displayFields, nameField } = params;
   const { updatedParticipant, logEntry } = adminUndoDelivery({
     eventId,
     participant,
     item,
     adminName,
     displayFields,
+    nameField,
   });
 
   const { db } = getFirebaseServices();

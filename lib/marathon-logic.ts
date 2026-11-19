@@ -183,11 +183,14 @@ export type DeliveryAttemptResult =
 
 export function extractParticipantDisplayName(
   participant: Participant,
-  displayFields: string[]
+  displayFields: string[],
+  nameField?: string
 ): string {
+  const explicitKey = nameField?.trim();
   const candidateKeys = [
-    ...Object.keys(participant.dynamicData).filter((k) =>
-      /اسم|name|full|متسابق|مشترك/i.test(k)
+    ...(explicitKey ? [explicitKey] : []),
+    ...Object.keys(participant.dynamicData).filter(
+      (k) => k !== explicitKey && /اسم|name|full|متسابق|مشترك/i.test(k)
     ),
     ...displayFields,
   ];
@@ -207,10 +210,11 @@ export function attemptLocalDelivery(params: {
   organizer: Organizer;
   item: DeliverableItem;
   displayFields: string[];
+  nameField?: string;
   allItems?: DeliverableItem[];
   nowIso?: string;
 }): DeliveryAttemptResult {
-  const { eventId, participant, organizer, item, displayFields, allItems } = params;
+  const { eventId, participant, organizer, item, displayFields, nameField, allItems } = params;
   const nowIso = params.nowIso ?? new Date().toISOString();
 
   if (!organizer.isActive) {
@@ -266,7 +270,7 @@ export function attemptLocalDelivery(params: {
   const logEntry: ActivityLog = {
     id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     eventId,
-    participantName: extractParticipantDisplayName(participant, displayFields),
+    participantName: extractParticipantDisplayName(participant, displayFields, nameField),
     barcode: participant.barcode,
     itemId: item.id,
     itemName: item.name,
@@ -291,9 +295,10 @@ export function adminUndoDelivery(params: {
   item: DeliverableItem;
   adminName: string;
   displayFields: string[];
+  nameField?: string;
   nowIso?: string;
 }): { updatedParticipant: Participant; logEntry: ActivityLog } {
-  const { eventId, participant, item, adminName, displayFields } = params;
+  const { eventId, participant, item, adminName, displayFields, nameField } = params;
   const nowIso = params.nowIso ?? new Date().toISOString();
 
   const nextDeliveries = { ...participant.deliveries };
@@ -307,7 +312,7 @@ export function adminUndoDelivery(params: {
   const logEntry: ActivityLog = {
     id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     eventId,
-    participantName: extractParticipantDisplayName(participant, displayFields),
+    participantName: extractParticipantDisplayName(participant, displayFields, nameField),
     barcode: participant.barcode,
     itemId: item.id,
     itemName: item.name,
@@ -358,6 +363,19 @@ export function autoSuggestColumnMapping(headers: string[]): ColumnMapping {
     cleanHeaders[0] ??
     '';
 
+  const nameField =
+    cleanHeaders.find(
+      (h) =>
+        h !== barcodeField &&
+        /^(?:الاسم|اسم|name|full\s*name|participant\s*name|runner\s*name|اسم\s*المتسابق|الاسم\s*الكامل)$/i.test(
+          h.trim()
+        )
+    ) ??
+    cleanHeaders.find(
+      (h) => h !== barcodeField && /اسم|name|full|متسابق|مشترك/i.test(h)
+    ) ??
+    '';
+
   const searchFields = cleanHeaders.filter((h) =>
     /اسم|name|موبايل|هاتف|جوال|phone|mobile|bib|صدر|barcode|باركود/i.test(h)
   );
@@ -380,6 +398,7 @@ export function autoSuggestColumnMapping(headers: string[]): ColumnMapping {
 
   return {
     barcodeField,
+    nameField,
     searchFields: searchFields.length > 0 ? searchFields : cleanHeaders.slice(0, 3),
     displayFields: fallbackDisplay,
     displayLabels,

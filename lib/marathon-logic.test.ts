@@ -5,6 +5,7 @@ import {
   attemptLocalDelivery,
   autoSuggestColumnMapping,
   computeEventStats,
+  extractParticipantDisplayName,
   generateSearchKeywords,
   isPrerequisiteMet,
   matchesSearchQuery,
@@ -188,8 +189,28 @@ test('computeEventStats and autoSuggestColumnMapping return accurate output', ()
     'رقم الصدر',
   ]);
   assert.equal(mapping.barcodeField, 'Barcode');
+  assert.equal(mapping.nameField, 'الاسم الكامل');
   assert.equal(mapping.searchFields.includes('الاسم الكامل'), true);
   assert.equal(mapping.displayFields.includes('مقاس التيشيرت'), true);
+
+  const customParticipant: Participant = {
+    barcode: 'RUN-200',
+    searchKeywords: [],
+    dynamicData: {
+      'Event Name': 'Cairo Marathon',
+      Runner: 'سارة علي',
+      'Full Name': 'Sara Ali',
+    },
+    deliveries: {},
+  };
+  assert.equal(
+    extractParticipantDisplayName(customParticipant, ['Runner'], 'Runner'),
+    'سارة علي'
+  );
+  assert.equal(
+    extractParticipantDisplayName(customParticipant, ['Runner'], 'Full Name'),
+    'Sara Ali'
+  );
 });
 
 test('verifyAdminPasscode validates Abdallah@2008 strictly', () => {

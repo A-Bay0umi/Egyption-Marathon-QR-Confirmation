@@ -483,6 +483,7 @@ export const OrganizerScannerApp: React.FC = () => {
         organizer,
         item,
         displayFields: eventData.displayFields,
+        nameField: eventData.nameField,
         allItems: eventData.deliverableItems,
         isOnline,
       });
@@ -1079,7 +1080,11 @@ export const OrganizerScannerApp: React.FC = () => {
                     </div>
                   ) : (
                     searchResults.map((p) => {
-                      const displayName = extractParticipantDisplayName(p, eventData.displayFields);
+                      const displayName = extractParticipantDisplayName(
+                        p,
+                        eventData.displayFields,
+                        eventData.nameField
+                      );
                       const sizeVal =
                         p.dynamicData['مقاس التيشيرت'] || p.dynamicData['Size'] || '';
                       const bibVal = p.dynamicData['رقم الصدر'] || p.dynamicData['Bib'] || '';
@@ -1182,7 +1187,8 @@ export const OrganizerScannerApp: React.FC = () => {
               {selectedParticipant ? (() => {
                 const participantDisplayName = extractParticipantDisplayName(
                   selectedParticipant,
-                  eventData.displayFields
+                  eventData.displayFields,
+                  eventData.nameField
                 );
                 const visibleFields = (
                   eventData.displayFields.length > 0
@@ -1190,7 +1196,7 @@ export const OrganizerScannerApp: React.FC = () => {
                     : Object.keys(selectedParticipant.dynamicData)
                 ).filter((field) => {
                   const val = selectedParticipant.dynamicData[field];
-                  return Boolean(val) && val !== participantDisplayName;
+                  return Boolean(val) && field !== eventData.nameField && val !== participantDisplayName;
                 });
 
                 return (

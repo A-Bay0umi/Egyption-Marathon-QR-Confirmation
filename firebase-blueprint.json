@@ -15,6 +15,7 @@
         "deliverableItems": { "type": "array", "description": "Bounded list of deliverable kit items (max 20), each optionally referencing dependsOnItemId for sequential chains." },
         "displayFields": { "type": "array", "description": "Bounded list of Excel column names displayed to organizers (max 20)." },
         "displayLabels": { "type": "object", "description": "Optional custom Arabic labels for display fields." },
+        "nameField": { "type": "string", "maxLength": 120, "description": "Optional Excel/sheet column key explicitly chosen as the participant display name." },
         "searchFields": { "type": "array", "description": "Bounded list of fields used for smart fallback search (max 10)." },
         "totalParticipants": { "type": "integer" },
         "ownerUid": { "type": "string", "minLength": 1, "maxLength": 128 },

@@ -14,6 +14,7 @@ import {
 import {
   batchImportParticipantsFirestore,
   deleteParticipantDoc,
+  updateEventDoc,
   upsertSingleParticipantDoc,
 } from '@/lib/firestore-store';
 import {
@@ -46,15 +47,28 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [fileName, setFileName] = useState('');
   const [barcodeField, setBarcodeField] = useState('');
+  const [nameField, setNameField] = useState('');
   const [searchFields, setSearchFields] = useState<string[]>([]);
   const [displayFields, setDisplayFields] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState({ percent: 0, processed: 0, total: 0 });
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [savingNameField, setSavingNameField] = useState(false);
 
   // Search participants in this event
   const [searchQuery, setSearchQuery] = useState('');
+
+  const availableColumns = useMemo(() => {
+    const colSet = new Set<string>();
+    if (event.nameField) colSet.add(event.nameField);
+    for (const p of participants) {
+      for (const k of Object.keys(p.dynamicData)) {
+        if (k.trim()) colSet.add(k);
+      }
+    }
+    return Array.from(colSet);
+  }, [event.nameField, participants]);
 
   const filteredParticipants = useMemo(() => {
     const q = searchQuery.trim();
@@ -107,6 +121,7 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
     setRows(rawRows);
     setFileName(label);
     setBarcodeField(suggested.barcodeField);
+    setNameField(suggested.nameField ?? '');
     setSearchFields(suggested.searchFields);
     setDisplayFields(suggested.displayFields);
     setErrorMessage(null);
@@ -162,6 +177,7 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
         eventId: event.id,
         rows,
         barcodeField,
+        nameField: nameField || undefined,
         searchFields,
         displayFields,
         displayLabels: {},
@@ -175,6 +191,24 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
       setErrorMessage('حدث خطأ أثناء رفع المتسابقين إلى Firebase.');
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleChangeEventNameField = async (nextField: string) => {
+    setSavingNameField(true);
+    setErrorMessage(null);
+    setStatusMessage(null);
+    try {
+      await updateEventDoc(event.id, { nameField: nextField });
+      setStatusMessage(
+        nextField
+          ? `تم تحديد عمود "${nextField}" كاسم المتسابق بنجاح.`
+          : 'تمت إعادة اختيار عمود الاسم إلى الوضع التلقائي.'
+      );
+    } catch {
+      setErrorMessage('تعذر تحديث عمود الاسم. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setSavingNameField(false);
     }
   };
 
@@ -283,21 +317,50 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
 
             {headers.length > 0 && (
               <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5">
-                    عمود الباركود / الكود المميز (مطلوب)
-                  </label>
-                  <select
-                    value={barcodeField}
-                    onChange={(e) => setBarcodeField(e.target.value)}
-                    className="w-full sm:w-72 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
-                  >
-                    {headers.map((h) => (
-                      <option key={h} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label
+                      htmlFor="import-barcode-field"
+                      className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5"
+                    >
+                      عمود الباركود / الكود المميز (مطلوب)
+                    </label>
+                    <select
+                      id="import-barcode-field"
+                      value={barcodeField}
+                      onChange={(e) => setBarcodeField(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+                    >
+                      {headers.map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="import-name-field"
+                      className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5"
+                    >
+                      عمود اسم المتسابق (الاسم الظاهر)
+                    </label>
+                    <select
+                      id="import-name-field"
+                      data-testid="import-name-field-select"
+                      value={nameField}
+                      onChange={(e) => setNameField(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+                    >
+                      <option value="">تحديد تلقائي (افتراضي)</option>
+                      {headers.map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -379,19 +442,47 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
 
       {/* Participants Directory for This Event */}
       <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <h3 className="text-base font-bold text-slate-900 dark:text-white">
             الأشخاص المسجلون في هذا الإيفنت ({filteredParticipants.length})
           </h3>
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="بحث بالاسم، الباركود، الموبايل..."
-              className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-10 pl-3 py-2 text-sm text-slate-900 dark:text-white min-h-[44px]"
-            />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full lg:w-auto">
+            {availableColumns.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="event-name-field-select"
+                  className="text-xs font-bold text-slate-700 dark:text-neutral-300 whitespace-nowrap"
+                >
+                  عمود الاسم:
+                </label>
+                <select
+                  id="event-name-field-select"
+                  data-testid="event-name-field-select"
+                  disabled={savingNameField}
+                  value={event.nameField ?? ''}
+                  onChange={(e) => void handleChangeEventNameField(e.target.value)}
+                  className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white min-h-[44px] disabled:opacity-50"
+                >
+                  <option value="">تحديد تلقائي (افتراضي)</option>
+                  {availableColumns.map((col) => (
+                    <option key={col} value={col}>
+                      {col}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="بحث بالاسم، الباركود، الموبايل..."
+                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-10 pl-3 py-2 text-sm text-slate-900 dark:text-white min-h-[44px]"
+              />
+            </div>
           </div>
         </div>
 
@@ -406,9 +497,9 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-neutral-800 border border-slate-200 dark:border-neutral-800 rounded-xl overflow-hidden">
             {filteredParticipants.slice(0, 150).map((p) => {
-              const pName = extractParticipantDisplayName(p, event.displayFields);
+              const pName = extractParticipantDisplayName(p, event.displayFields, event.nameField);
               const details = Object.entries(p.dynamicData)
-                .filter(([, val]) => val && val !== pName)
+                .filter(([k, val]) => val && k !== event.nameField && val !== pName)
                 .map(([k, val]) => `${k}: ${val}`)
                 .join(' · ');
 

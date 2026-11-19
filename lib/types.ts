@@ -22,6 +22,7 @@ export interface MarathonEvent {
   deliverableItems: DeliverableItem[];
   displayFields: string[];
   displayLabels?: Record<string, string>;
+  nameField?: string;
   searchFields: string[];
   totalParticipants: number;
   ownerUid: string;
@@ -63,6 +64,7 @@ export interface ActivityLog {
 
 export interface ColumnMapping {
   barcodeField: string;
+  nameField?: string;
   searchFields: string[];
   displayFields: string[];
   displayLabels: Record<string, string>;

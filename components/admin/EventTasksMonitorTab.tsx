@@ -166,6 +166,7 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
         item,
         adminName: 'مدير السباق',
         displayFields: event.displayFields,
+        nameField: event.nameField,
       });
       setPendingUndo(null);
       setUndoPasscode('');
@@ -528,11 +529,11 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
         ) : (
           <div className="divide-y divide-slate-100 dark:divide-neutral-800 border border-slate-200 dark:border-neutral-800 rounded-xl overflow-hidden">
             {filteredParticipants.slice(0, 150).map((p) => {
-              const name = extractParticipantDisplayName(p, event.displayFields);
+              const name = extractParticipantDisplayName(p, event.displayFields, event.nameField);
               const delivery = p.deliveries?.[activeTask.id];
               const isDelivered = delivery?.status === 'delivered';
               const extraSummary = event.displayFields
-                .filter((f) => p.dynamicData[f] && p.dynamicData[f] !== name)
+                .filter((f) => f !== event.nameField && p.dynamicData[f] && p.dynamicData[f] !== name)
                 .slice(0, 3)
                 .map((f) => `${f}: ${p.dynamicData[f]}`)
                 .join(' · ');
@@ -645,7 +646,7 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
               </div>
               <div className="text-slate-600 dark:text-neutral-300">
                 المتسابق:{' '}
-                {extractParticipantDisplayName(pendingUndo.participant, event.displayFields)} (
+                {extractParticipantDisplayName(pendingUndo.participant, event.displayFields, event.nameField)} (
                 <span dir="ltr" className="font-ascii-mono">
                   {pendingUndo.participant.barcode}
                 </span>

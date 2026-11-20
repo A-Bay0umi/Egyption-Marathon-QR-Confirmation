@@ -61,6 +61,7 @@ import {
   matchesSearchQuery,
   normalizeBarcode,
 } from '@/lib/marathon-logic';
+import { postAppsScriptWebhookChunks } from '@/lib/sheets-sync';
 import type { DeliverableItem, MarathonEvent, Organizer, Participant } from '@/lib/types';
 
 const THEME_STORAGE_KEY = 'marathon_high_contrast_dark';
@@ -504,6 +505,14 @@ export const OrganizerScannerApp: React.FC = () => {
           void waitForFirestorePendingWrites()
             .then(() => setWaitPendingSync(false))
             .catch(() => setWaitPendingSync(false));
+        } else if (eventData.sheetsWebhookUrl && eventData.sheetsAutoSync !== false) {
+          void postAppsScriptWebhookChunks({
+            webhookUrl: eventData.sheetsWebhookUrl,
+            event: eventData,
+            organizers: [organizer],
+            participants: [result.updatedParticipant],
+            mode: 'upsert',
+          }).catch(() => {});
         }
         setFeedbackBanner({
           type: 'success',

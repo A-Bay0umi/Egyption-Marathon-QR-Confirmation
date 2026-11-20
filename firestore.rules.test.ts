@@ -17,4 +17,6 @@ test('firestore.rules enforces default deny and eight pillars', () => {
   assert.match(rules, /match \/delivery_conflicts\/\{conflictId\}/);
   assert.match(rules, /data\.resolvedAt == request\.time/);
   assert.match(rules, /data\.note\.size\(\) <= 500/);
+  assert.match(rules, /sheetsWebhookUrl/);
+  assert.match(rules, /sheetsAutoSync/);
 });

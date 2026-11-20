@@ -91,6 +91,15 @@ function mapEventDoc(id: string, data: Record<string, unknown>): MarathonEvent {
       typeof data.registrationClosesAt === 'string' && data.registrationClosesAt
         ? data.registrationClosesAt
         : undefined,
+    sheetsWebhookUrl:
+      typeof data.sheetsWebhookUrl === 'string' && data.sheetsWebhookUrl
+        ? data.sheetsWebhookUrl
+        : undefined,
+    sheetsWebhookSecret:
+      typeof data.sheetsWebhookSecret === 'string' && data.sheetsWebhookSecret
+        ? data.sheetsWebhookSecret
+        : undefined,
+    sheetsAutoSync: typeof data.sheetsAutoSync === 'boolean' ? data.sheetsAutoSync : undefined,
     deliverableItems: Array.isArray(data.deliverableItems)
       ? (data.deliverableItems as DeliverableItem[])
       : [],
@@ -525,6 +534,9 @@ export async function updateEventDoc(
       | 'registrationStatus'
       | 'registrationOpensAt'
       | 'registrationClosesAt'
+      | 'sheetsWebhookUrl'
+      | 'sheetsWebhookSecret'
+      | 'sheetsAutoSync'
     >
   >
 ): Promise<void> {
@@ -546,6 +558,16 @@ export async function updateEventDoc(
   if ('registrationClosesAt' in patch) {
     cleanPatch.registrationClosesAt = patch.registrationClosesAt
       ? patch.registrationClosesAt
+      : deleteField();
+  }
+  if ('sheetsWebhookUrl' in patch) {
+    cleanPatch.sheetsWebhookUrl = patch.sheetsWebhookUrl?.trim()
+      ? patch.sheetsWebhookUrl.trim()
+      : deleteField();
+  }
+  if ('sheetsWebhookSecret' in patch) {
+    cleanPatch.sheetsWebhookSecret = patch.sheetsWebhookSecret?.trim()
+      ? patch.sheetsWebhookSecret.trim()
       : deleteField();
   }
   try {

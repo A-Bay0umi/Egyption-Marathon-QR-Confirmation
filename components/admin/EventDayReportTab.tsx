@@ -1,52 +1,36 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import * as XLSX from 'xlsx';
 import {
   AlertTriangle,
   BarChart3,
-  Calendar,
   Check,
   CheckCircle2,
-  Clock,
   Copy,
+  Download,
   Package,
-  Printer,
   RefreshCw,
   RotateCcw,
   Search,
   ShieldAlert,
-  TrendingUp,
-  UserCheck,
   Users,
   WifiOff,
 } from 'lucide-react';
-import {
-  buildDayReport,
-  buildWhatsAppDayReportSummary,
-  formatArabicDurationSeconds,
-  formatCairoHourRange,
-  formatCairoTime,
-  getCairoDateKey,
-} from '@/lib/report-logic';
-import type {
-  ActivityLog,
-  DeliveryConflictResolution,
-  MarathonEvent,
-  Organizer,
-  Participant,
-} from '@/lib/types';
+import { extractParticipantDisplayName } from '@/lib/marathon-logic';
+import { buildGeneralReport, buildWhatsAppGeneralReportSummary } from '@/lib/report-logic';
+import { formatDeliveryTime12hEn } from '@/lib/sheets-sync';
+import type { ActivityLog, MarathonEvent, Organizer, Participant } from '@/lib/types';
 
 interface EventDayReportTabProps {
   event: MarathonEvent;
   participants: Participant[];
   organizers: Organizer[];
   logs: ActivityLog[];
-  conflictResolutions: Record<string, DeliveryConflictResolution>;
   loaded: boolean;
   loading: boolean;
   error: string | null;
   onRefresh: () => Promise<void>;
-  onOpenConflictsTab: () => void;
 }
 
 const ITEM_BAR_COLORS = [
@@ -56,15 +40,6 @@ const ITEM_BAR_COLORS = [
   'bg-violet-600 dark:bg-violet-500',
   'bg-rose-600 dark:bg-rose-500',
   'bg-teal-600 dark:bg-teal-500',
-] as const;
-
-const ITEM_DOT_COLORS = [
-  'bg-emerald-600',
-  'bg-sky-600',
-  'bg-amber-500',
-  'bg-violet-600',
-  'bg-rose-600',
-  'bg-teal-600',
 ] as const;
 
 function copyTextWithFallback(text: string): Promise<boolean> {
@@ -102,34 +77,35 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
   participants,
   organizers,
   logs,
-  conflictResolutions,
   loaded,
   loading,
   error,
   onRefresh,
-  onOpenConflictsTab,
 }) => {
-  const todayCairo = useMemo(() => getCairoDateKey(new Date()), []);
-  const [selectedDate, setSelectedDate] = useState<string>(() => getCairoDateKey(new Date()));
   const [searchByItem, setSearchByItem] = useState<Record<string, string>>({});
   const [showAllByItem, setShowAllByItem] = useState<Record<string, boolean>>({});
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
 
   const report = useMemo(
     () =>
-      buildDayReport({
+      buildGeneralReport({
         event,
         participants,
-        organizers,
         logs,
-        conflictResolutions,
-        selectedDate,
       }),
-    [event, participants, organizers, logs, conflictResolutions, selectedDate]
+    [event, participants, logs]
   );
 
+  const boothByOrgId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const org of organizers) {
+      if (org.boothName) map.set(org.id, org.boothName);
+    }
+    return map;
+  }, [organizers]);
+
   const handleCopyWhatsApp = async () => {
-    const summaryText = buildWhatsAppDayReportSummary(report, event);
+    const summaryText = buildWhatsAppGeneralReportSummary(report, event);
     const ok = await copyTextWithFallback(summaryText);
     setCopyStatus(ok ? 'copied' : 'error');
     window.setTimeout(() => {
@@ -137,154 +113,150 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
     }, 2600);
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handleDownloadReportExcel = () => {
+    const workbook = XLSX.utils.book_new();
+
+    // Sheet 1: Per-item completion stats
+    const statsHeaders = [
+      'العنصر / المهمة',
+      'المسلَّم',
+      'الإجمالي المؤهل',
+      'المتبقي',
+      'نسبة الإنجاز (%)',
+      'جاهز للاستلام',
+      'الشرط المسبق',
+    ];
+    const statsRows = report.itemStats.map((item) => [
+      item.itemName,
+      item.delivered,
+      item.total,
+      item.remaining,
+      item.percentage,
+      item.readyToReceiveCount,
+      item.prerequisiteName ?? '',
+    ]);
+    const statsSheet = XLSX.utils.aoa_to_sheet([statsHeaders, ...statsRows]);
+    XLSX.utils.book_append_sheet(workbook, statsSheet, 'إنجاز العناصر');
+
+    // Sheet 2: Full participants delivery matrix with 12h English digits + seconds
+    const dynamicKeys =
+      event.displayFields.length > 0
+        ? event.displayFields
+        : Object.keys(participants[0]?.dynamicData ?? {});
+    const itemHeaders = event.deliverableItems.flatMap((item) => [
+      `${item.name} - الحالة`,
+      `${item.name} - وقت التسليم`,
+      `${item.name} - المنظم`,
+    ]);
+    const participantsHeaders = ['الباركود', 'الاسم', ...dynamicKeys, ...itemHeaders];
+    const participantsRows = participants.map((p) => {
+      const name = extractParticipantDisplayName(p, event.displayFields, event.nameField);
+      const base = [p.barcode, name, ...dynamicKeys.map((k) => p.dynamicData[k] ?? '')];
+      const delivs = event.deliverableItems.flatMap((item) => {
+        const rec = p.deliveries?.[item.id];
+        if (!rec || rec.status !== 'delivered') {
+          return ['لم يستلم', '', ''];
+        }
+        const booth = boothByOrgId.get(rec.deliveredByOrganizerId);
+        const orgLabel = booth
+          ? `${rec.deliveredByOrganizerName} (${booth})`
+          : rec.deliveredByOrganizerName;
+        return ['تم التسليم', formatDeliveryTime12hEn(rec.deliveredAt), orgLabel];
+      });
+      return [...base, ...delivs];
+    });
+    const participantsSheet = XLSX.utils.aoa_to_sheet([participantsHeaders, ...participantsRows]);
+    XLSX.utils.book_append_sheet(workbook, participantsSheet, 'سجل التسليم');
+
+    // Sheet 3: Not yet received per item
+    const pendingHeaders = ['العنصر', 'الباركود', 'الاسم', 'بيانات إضافية', 'حالة الاستلام'];
+    const pendingRows = report.pendingByItem.flatMap((group) =>
+      group.participants.map((p) => [
+        group.itemName,
+        p.barcode,
+        p.name,
+        p.extra,
+        p.isReady ? 'جاهز للاستلام' : 'بانتظار السابق',
+      ])
+    );
+    const pendingSheet = XLSX.utils.aoa_to_sheet([pendingHeaders, ...pendingRows]);
+    XLSX.utils.book_append_sheet(workbook, pendingSheet, 'لم يستلموا بعد');
+
+    // Sheet 4: Undone audit logs (if any)
+    if (report.audit.undoneEntries.length > 0) {
+      const undoneHeaders = ['المتسابق', 'الباركود', 'العنصر', 'المنفّذ', 'وقت الإلغاء'];
+      const undoneRows = report.audit.undoneEntries.map((u) => [
+        u.participantName,
+        u.barcode,
+        u.itemName,
+        u.organizerName,
+        formatDeliveryTime12hEn(u.timestamp),
+      ]);
+      const undoneSheet = XLSX.utils.aoa_to_sheet([undoneHeaders, ...undoneRows]);
+      XLSX.utils.book_append_sheet(workbook, undoneSheet, 'سجل الإلغاء');
+    }
+
+    XLSX.writeFile(workbook, `${event.name}-general-report.xlsx`);
   };
 
-  const isAllDays = selectedDate === 'all';
-  const dateDisplayLabel = isAllDays ? 'كل الأيام' : selectedDate || todayCairo;
-
   return (
-    <div className="print-report-root space-y-6">
-      {/* Print-only A4 Header */}
-      <div className="hidden print:block border-b-2 border-black pb-3 mb-4">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-black">
-              تقرير نهاية اليوم — {event.name}
-            </h1>
-            <p className="text-xs text-black mt-1 font-mono-num">
-              تاريخ التقرير: {dateDisplayLabel} · تاريخ الإيفنت: {event.date}
-            </p>
-          </div>
-          <div className="text-xs text-black font-mono-num text-left">
-            توقيت القاهرة (Africa/Cairo)
-          </div>
-        </div>
-      </div>
-
-      {/* Controls & Action Bar (hidden on print) */}
-      <div className="no-print rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <BarChart3 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-              <span>تقرير نهاية اليوم</span>
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5">
-              ملخص التسليمات، أداء المنظمين، التوزيع بالساعة، المتبقين، والتدقيق بتوقيت القاهرة (Africa/Cairo).
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void onRefresh()}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-neutral-200 hover:bg-slate-100 dark:hover:bg-neutral-800 min-h-[42px] disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              <span>{loading ? 'جاري التحديث...' : 'تحديث'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => void handleCopyWhatsApp()}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-600 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 px-3.5 py-2 text-xs font-bold min-h-[42px]"
-            >
-              {copyStatus === 'copied' ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  <span>تم النسخ للواتساب</span>
-                </>
-              ) : copyStatus === 'error' ? (
-                <>
-                  <AlertTriangle className="w-4 h-4 text-red-600" />
-                  <span className="text-red-600 dark:text-red-400">تعذر النسخ تلقائياً</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  <span>نسخ ملخص واتساب</span>
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-xs font-bold min-h-[42px]"
-            >
-              <Printer className="w-4 h-4" />
-              <span>طباعة / حفظ PDF</span>
-            </button>
-          </div>
+    <div className="space-y-6">
+      {/* Header & Action Bar */}
+      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            <span>التقرير العام للإيفنت</span>
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5 font-mono-num">
+            إجمالي المتسابقين: {report.totalParticipants.toLocaleString('en-US')} · جميع التسليمات المسجلة على الإيفنت
+          </p>
         </div>
 
-        {/* Date Filter Row */}
-        <div className="pt-3 border-t border-slate-100 dark:border-neutral-800 flex flex-wrap items-center gap-2.5">
-          <div className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-neutral-300">
-            <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span>اليوم:</span>
-          </div>
-
-          <input
-            type="date"
-            dir="ltr"
-            aria-label="اختيار يوم التقرير"
-            value={isAllDays ? '' : selectedDate}
-            onChange={(e) => {
-              const val = e.target.value;
-              setSelectedDate(val || todayCairo);
-            }}
-            className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-1.5 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[38px]"
-          />
-
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => setSelectedDate(todayCairo)}
-            className={`rounded-xl px-3 py-1.5 text-xs font-bold min-h-[38px] border transition-colors ${
-              selectedDate === todayCairo
-                ? 'border-emerald-600 bg-emerald-600 text-white'
-                : 'border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900 text-slate-700 dark:text-neutral-200'
-            }`}
+            onClick={() => void onRefresh()}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900 px-3.5 py-2 text-xs font-bold text-slate-700 dark:text-neutral-200 hover:bg-slate-100 dark:hover:bg-neutral-800 min-h-[42px] disabled:opacity-50"
           >
-            اليوم
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'جاري التحديث...' : 'تحديث'}</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setSelectedDate('all')}
-            className={`rounded-xl px-3 py-1.5 text-xs font-bold min-h-[38px] border transition-colors ${
-              isAllDays
-                ? 'border-emerald-600 bg-emerald-600 text-white'
-                : 'border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900 text-slate-700 dark:text-neutral-200'
-            }`}
+            onClick={() => void handleCopyWhatsApp()}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-600 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-950/70 px-3.5 py-2 text-xs font-bold min-h-[42px]"
           >
-            كل الأيام
+            {copyStatus === 'copied' ? (
+              <>
+                <Check className="w-4 h-4" />
+                <span>تم النسخ للواتساب</span>
+              </>
+            ) : copyStatus === 'error' ? (
+              <>
+                <AlertTriangle className="w-4 h-4 text-red-600" />
+                <span className="text-red-600 dark:text-red-400">تعذر النسخ تلقائياً</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4" />
+                <span>نسخ ملخص واتساب</span>
+              </>
+            )}
           </button>
 
-          {report.availableDates.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mr-auto">
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-neutral-500">
-                أيام بها نشاط:
-              </span>
-              {report.availableDates.slice(0, 5).map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setSelectedDate(d)}
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-ascii-mono font-bold border min-h-[32px] ${
-                    selectedDate === d
-                      ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
-                      : 'border-slate-200 dark:border-neutral-800 text-slate-600 dark:text-neutral-400 hover:border-slate-300'
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-          )}
+          <button
+            type="button"
+            data-testid="download-report-excel-btn"
+            onClick={handleDownloadReportExcel}
+            disabled={participants.length === 0 && event.deliverableItems.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-xs font-bold min-h-[42px] disabled:opacity-50"
+          >
+            <Download className="w-4 h-4" />
+            <span>تحميل التقرير Excel</span>
+          </button>
         </div>
       </div>
 
@@ -301,7 +273,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
           <button
             type="button"
             onClick={() => void onRefresh()}
-            className="no-print rounded-xl border border-red-300 dark:border-red-800 px-3 py-1.5 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/40 shrink-0"
+            className="rounded-xl border border-red-300 dark:border-red-800 px-3 py-1.5 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/40 shrink-0"
           >
             إعادة المحاولة
           </button>
@@ -310,130 +282,25 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
 
       {/* Initial Loading Skeleton */}
       {loading && !loaded ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5, 6].map((idx) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[1, 2, 3, 4].map((idx) => (
             <div
               key={idx}
-              className="h-28 rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 animate-pulse"
+              className="h-32 rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 animate-pulse"
             />
           ))}
         </div>
       ) : (
         <>
-          {/* Empty Logs Alert for Selected Day */}
-          {loaded && report.summary.dayDeliveriesCount === 0 && (
-            <div className="no-print rounded-2xl border border-amber-200 dark:border-amber-900/70 bg-amber-50/70 dark:bg-amber-950/30 p-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 text-xs sm:text-sm font-semibold text-amber-900 dark:text-amber-200">
-                <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-                <span>
-                  {isAllDays
-                    ? 'لا توجد عمليات تسليم مسجلة في هذا الإيفنت حتى الآن.'
-                    : `لا توجد عمليات تسليم مسجلة في يوم ${dateDisplayLabel}. يمكنك اختيار يوم آخر أو عرض كل الأيام.`}
-                </span>
-              </div>
-              {!isAllDays && report.availableDates.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedDate('all')}
-                  className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white px-3.5 py-2 text-xs font-bold min-h-[38px]"
-                >
-                  عرض كل الأيام ({report.availableDates.length})
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* SECTION 1: General Summary */}
-          <section className="print-section space-y-3">
-            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>1. الملخص العام ({dateDisplayLabel})</span>
-            </h3>
-
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4">
-                <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                  إجمالي المتسابقين
-                </div>
-                <div className="mt-1.5 text-2xl font-bold text-slate-900 dark:text-white font-mono-num">
-                  {report.summary.totalParticipants.toLocaleString('en-US')}
-                </div>
-              </div>
-
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4">
-                <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                  {isAllDays ? 'إجمالي التسليمات' : 'تسليمات اليوم'}
-                </div>
-                <div className="mt-1.5 text-2xl font-bold text-emerald-700 dark:text-emerald-400 font-mono-num">
-                  {report.summary.dayDeliveriesCount.toLocaleString('en-US')}
-                </div>
-                <div className="mt-0.5 text-[11px] text-slate-500 dark:text-neutral-400 font-mono-num">
-                  {report.summary.uniqueParticipantsDeliveredCount.toLocaleString('en-US')} متسابق فريد
-                </div>
-              </div>
-
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4">
-                <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                  نسبة الإنجاز الكلية
-                </div>
-                <div className="mt-1.5 text-2xl font-bold text-slate-900 dark:text-white font-mono-num">
-                  {report.summary.overallCompletionPercent}%
-                </div>
-                <div className="mt-0.5 text-[11px] text-slate-500 dark:text-neutral-400 font-mono-num">
-                  {report.summary.overallDeliveredUnits.toLocaleString('en-US')} /{' '}
-                  {report.summary.overallTotalUnits.toLocaleString('en-US')} وحدة
-                </div>
-              </div>
-
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4">
-                <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                  أول تسليم
-                </div>
-                <div className="mt-1.5 text-lg sm:text-xl font-bold text-slate-900 dark:text-white font-mono-num">
-                  {report.summary.firstDeliveryAt
-                    ? formatCairoTime(report.summary.firstDeliveryAt)
-                    : '—'}
-                </div>
-              </div>
-
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4">
-                <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                  آخر تسليم
-                </div>
-                <div className="mt-1.5 text-lg sm:text-xl font-bold text-slate-900 dark:text-white font-mono-num">
-                  {report.summary.lastDeliveryAt
-                    ? formatCairoTime(report.summary.lastDeliveryAt)
-                    : '—'}
-                </div>
-              </div>
-
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4">
-                <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                  ساعة الذروة
-                </div>
-                <div className="mt-1.5 text-lg sm:text-xl font-bold text-emerald-700 dark:text-emerald-400 font-ascii-mono" dir="ltr">
-                  {report.summary.peakHour
-                    ? formatCairoHourRange(report.summary.peakHour.hour)
-                    : '—'}
-                </div>
-                {report.summary.peakHour && (
-                  <div className="mt-0.5 text-[11px] text-slate-500 dark:text-neutral-400 font-mono-num">
-                    {report.summary.peakHour.count.toLocaleString('en-US')} عملية
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-
-          {/* SECTION 2: Per-Item Completion */}
-          <section className="print-section space-y-3">
+          {/* SECTION 1: Per-Item Completion */}
+          <section className="space-y-3">
             <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Package className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>2. إنجاز المهام والعناصر</span>
+              <span>إنجاز المهام والعناصر</span>
             </h3>
 
             {report.itemStats.length === 0 ? (
-              <div className="print-card rounded-2xl border border-dashed border-slate-300 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 text-center text-xs text-slate-500 dark:text-neutral-400">
+              <div className="rounded-2xl border border-dashed border-slate-300 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 text-center text-xs text-slate-500 dark:text-neutral-400">
                 لا توجد مهام أو عناصر توزيع مضافة لهذا الإيفنت.
               </div>
             ) : (
@@ -443,7 +310,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                   return (
                     <div
                       key={item.itemId}
-                      className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 space-y-3"
+                      className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 space-y-3"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -461,10 +328,9 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                         </span>
                       </div>
 
-                      {/* Progress bar */}
                       <div className="w-full h-2.5 rounded-full bg-slate-100 dark:bg-neutral-800 overflow-hidden">
                         <div
-                          className={`print-bar-fill h-full rounded-full ${barColor}`}
+                          className={`h-full rounded-full ${barColor}`}
                           style={{ width: `${item.percentage}%` }}
                         />
                       </div>
@@ -503,12 +369,6 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                           </div>
                         </div>
                       </div>
-
-                      {!isAllDays && (
-                        <div className="text-[11px] text-slate-500 dark:text-neutral-400 font-mono-num">
-                          عمليات اليوم لهذا العنصر: {item.dayDeliveredCount.toLocaleString('en-US')}
-                        </div>
-                      )}
                     </div>
                   );
                 })}
@@ -516,190 +376,15 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
             )}
           </section>
 
-          {/* SECTION 3: Per-Organizer / Booth Performance */}
-          <section className="print-section space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>3. أداء المنظمين والبوثات</span>
-              </h3>
-              <span className="text-[11px] text-slate-500 dark:text-neutral-400">
-                متوسط الوقت يحسب بين العمليات المتتالية مع استبعاد الاستراحات (&gt; 30 دقيقة)
-              </span>
-            </div>
-
-            {report.organizerStats.length === 0 ? (
-              <div className="print-card rounded-2xl border border-dashed border-slate-300 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 text-center text-xs text-slate-500 dark:text-neutral-400">
-                لا يوجد نشاط للمنظمين في الفترة المحددة.
-              </div>
-            ) : (
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-right text-xs sm:text-sm">
-                    <thead className="bg-slate-50 dark:bg-neutral-900 border-b border-slate-200 dark:border-neutral-800 text-slate-600 dark:text-neutral-300">
-                      <tr>
-                        <th className="py-3 px-4 font-bold">المنظم / البوث</th>
-                        <th className="py-3 px-3 font-bold">التسليمات</th>
-                        <th className="py-3 px-3 font-bold">العناصر</th>
-                        <th className="py-3 px-3 font-bold">أول عملية</th>
-                        <th className="py-3 px-3 font-bold">آخر عملية</th>
-                        <th className="py-3 px-3 font-bold">متوسط السرعة</th>
-                        <th className="py-3 px-3 font-bold">أكثر ساعة نشاطاً</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-neutral-800">
-                      {report.organizerStats.map((org) => (
-                        <tr key={org.organizerId} className="hover:bg-slate-50/60 dark:hover:bg-neutral-900/40">
-                          <td className="py-3 px-4">
-                            <div className="font-bold text-slate-900 dark:text-white">
-                              {org.organizerName}
-                            </div>
-                            {org.boothName && (
-                              <div className="text-[11px] text-slate-500 dark:text-neutral-400">
-                                {org.boothName}
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 font-bold text-emerald-700 dark:text-emerald-400 font-mono-num">
-                            {org.deliveriesCount.toLocaleString('en-US')}
-                          </td>
-                          <td className="py-3 px-3">
-                            <div className="flex flex-wrap gap-1.5">
-                              {org.itemsBreakdown.map((ib) => (
-                                <span
-                                  key={ib.itemId}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900 px-2 py-0.5 text-[11px] font-semibold"
-                                >
-                                  <span>{ib.itemName}:</span>
-                                  <span className="font-mono-num font-bold">{ib.count}</span>
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="py-3 px-3 font-mono-num text-slate-700 dark:text-neutral-300">
-                            {formatCairoTime(org.firstActionAt)}
-                          </td>
-                          <td className="py-3 px-3 font-mono-num text-slate-700 dark:text-neutral-300">
-                            {formatCairoTime(org.lastActionAt)}
-                          </td>
-                          <td className="py-3 px-3 font-mono-num text-slate-700 dark:text-neutral-300">
-                            {formatArabicDurationSeconds(org.avgSecondsBetweenDeliveries)}
-                          </td>
-                          <td className="py-3 px-3 font-ascii-mono text-slate-700 dark:text-neutral-300" dir="ltr">
-                            {org.peakHour ? (
-                              <span>
-                                {formatCairoHourRange(org.peakHour.hour)} ({org.peakHour.count})
-                              </span>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* SECTION 4: Hourly Stacked Bar Chart (Pure CSS, Zero Libraries) */}
-          <section className="print-section space-y-3">
-            <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>4. التوزيع بالساعة (مقسّم حسب العنصر)</span>
-            </h3>
-
-            {report.hourlyBuckets.length === 0 ? (
-              <div className="print-card rounded-2xl border border-dashed border-slate-300 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 text-center text-xs text-slate-500 dark:text-neutral-400">
-                لا توجد تسليمات لعرض الرسم البياني بالساعة.
-              </div>
-            ) : (
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
-                {/* Legend */}
-                <div className="flex flex-wrap items-center gap-3">
-                  {event.deliverableItems.map((item, idx) => (
-                    <div key={item.id} className="inline-flex items-center gap-1.5 text-xs font-semibold">
-                      <span
-                        className={`print-bar-fill w-3 h-3 rounded-sm inline-block border border-slate-400/40 ${
-                          ITEM_DOT_COLORS[idx % ITEM_DOT_COLORS.length]
-                        }`}
-                      />
-                      <span className="text-slate-700 dark:text-neutral-200">{item.name}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Stacked Vertical Bars */}
-                <div className="overflow-x-auto pb-2">
-                  <div className="flex items-end gap-2 sm:gap-3 min-w-max h-52 pt-6 px-2 border-b border-slate-200 dark:border-neutral-800">
-                    {report.hourlyBuckets.map((bucket) => {
-                      const heightPercent =
-                        report.maxHourlyCount > 0
-                          ? Math.round((bucket.total / report.maxHourlyCount) * 100)
-                          : 0;
-
-                      return (
-                        <div
-                          key={bucket.hour}
-                          className="flex flex-col items-center justify-end h-full min-w-[42px] sm:min-w-[50px]"
-                          title={`${bucket.label}: ${bucket.total} عملية`}
-                        >
-                          <span className="text-[11px] font-bold text-slate-700 dark:text-neutral-200 font-mono-num mb-1">
-                            {bucket.total}
-                          </span>
-                          <div
-                            className="w-7 sm:w-8 rounded-t-lg overflow-hidden flex flex-col-reverse bg-slate-100 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800"
-                            style={{
-                              height: bucket.total > 0 ? `${Math.max(8, heightPercent)}%` : '3px',
-                            }}
-                          >
-                            {bucket.segments.map((seg) => {
-                              const segPercent =
-                                bucket.total > 0 ? (seg.count / bucket.total) * 100 : 0;
-                              const segColor =
-                                ITEM_BAR_COLORS[seg.colorIndex % ITEM_BAR_COLORS.length];
-                              return (
-                                <div
-                                  key={seg.itemId}
-                                  className={`print-bar-fill w-full ${segColor} border-t border-white/30 dark:border-black/30`}
-                                  style={{ height: `${segPercent}%` }}
-                                  title={`${seg.itemName}: ${seg.count}`}
-                                />
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Hour Labels Row */}
-                  <div className="flex items-center gap-2 sm:gap-3 min-w-max px-2 pt-2">
-                    {report.hourlyBuckets.map((bucket) => (
-                      <div
-                        key={bucket.hour}
-                        dir="ltr"
-                        className="min-w-[42px] sm:min-w-[50px] text-center text-[11px] font-bold font-ascii-mono text-slate-500 dark:text-neutral-400"
-                      >
-                        {String(bucket.hour).padStart(2, '0')}:00
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* SECTION 5: Not-Yet-Received Participants */}
-          <section className="print-break-before space-y-4">
+          {/* SECTION 2: Not-Yet-Received Participants */}
+          <section className="space-y-4">
             <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Users className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>5. المتسابقون الذين لم يستلموا بعد</span>
+              <span>المتسابقون الذين لم يستلموا بعد</span>
             </h3>
 
             {report.pendingByItem.length === 0 ? (
-              <div className="print-card rounded-2xl border border-dashed border-slate-300 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 text-center text-xs text-slate-500 dark:text-neutral-400">
+              <div className="rounded-2xl border border-dashed border-slate-300 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 text-center text-xs text-slate-500 dark:text-neutral-400">
                 لا توجد مهام لعرض المتسابقين المتبقين.
               </div>
             ) : (
@@ -723,7 +408,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                   return (
                     <div
                       key={group.itemId}
-                      className="print-section print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 space-y-3"
+                      className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 space-y-3"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex flex-wrap items-center gap-2">
@@ -739,7 +424,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                         </div>
 
                         {group.pendingCount > 0 && (
-                          <div className="no-print relative w-full sm:w-64">
+                          <div className="relative w-full sm:w-64">
                             <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                             <input
                               type="text"
@@ -778,7 +463,10 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                                   <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
                                     {p.name}
                                   </div>
-                                  <div className="text-[11px] text-slate-500 dark:text-neutral-400 truncate font-ascii-mono" dir="ltr">
+                                  <div
+                                    className="text-[11px] text-slate-500 dark:text-neutral-400 truncate font-ascii-mono"
+                                    dir="ltr"
+                                  >
                                     {p.barcode}
                                     {p.extra ? ` · ${p.extra}` : ''}
                                   </div>
@@ -797,7 +485,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                           </div>
 
                           {hasMoreThan50 && (
-                            <div className="no-print pt-1 flex items-center justify-between gap-2">
+                            <div className="pt-1 flex items-center justify-between gap-2">
                               <span className="text-[11px] text-slate-500 dark:text-neutral-400 font-mono-num">
                                 عرض {visibleParticipants.length.toLocaleString('en-US')} من{' '}
                                 {filtered.length.toLocaleString('en-US')}
@@ -827,15 +515,15 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
             )}
           </section>
 
-          {/* SECTION 6: Audit & Offline / Conflicts Summary */}
-          <section className="print-section space-y-3">
+          {/* SECTION 3: Audit (Undone & Offline count — without conflicts) */}
+          <section className="space-y-3">
             <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              <span>6. التدقيق والمراجعة</span>
+              <span>التدقيق وسجل الإلغاء</span>
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 flex items-center justify-between gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
                     عمليات إلغاء التسليم
@@ -847,10 +535,10 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                 <RotateCcw className="w-6 h-6 text-slate-400 dark:text-neutral-500 shrink-0" />
               </div>
 
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 flex items-center justify-between gap-3">
+              <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 flex items-center justify-between gap-3">
                 <div>
                   <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                    تسليمات أوفلاين
+                    تسليمات تمت أوفلاين
                   </div>
                   <div className="mt-1 text-2xl font-bold text-slate-900 dark:text-white font-mono-num">
                     {report.audit.offlineDeliveriesCount.toLocaleString('en-US')}
@@ -858,34 +546,10 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                 </div>
                 <WifiOff className="w-6 h-6 text-amber-500 shrink-0" />
               </div>
-
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
-                    التعارضات المفتوحة (على الإيفنت)
-                  </div>
-                  <div
-                    className={`mt-1 text-2xl font-bold font-mono-num ${
-                      report.audit.openConflictsCount > 0
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'text-emerald-700 dark:text-emerald-400'
-                    }`}
-                  >
-                    {report.audit.openConflictsCount.toLocaleString('en-US')}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={onOpenConflictsTab}
-                  className="no-print rounded-xl border border-amber-500/60 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/70 px-3 py-2 text-xs font-bold min-h-[38px] shrink-0"
-                >
-                  فتح التعارضات
-                </button>
-              </div>
             </div>
 
             {report.audit.undoneEntries.length > 0 && (
-              <div className="print-card rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 overflow-hidden">
+              <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 text-xs font-bold text-slate-700 dark:text-neutral-200">
                   تفاصيل عمليات الإلغاء ({report.audit.undoneEntries.length.toLocaleString('en-US')})
                 </div>
@@ -906,7 +570,10 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                           <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-white">
                             {u.participantName}
                           </td>
-                          <td className="py-2.5 px-3 font-ascii-mono text-slate-600 dark:text-neutral-300" dir="ltr">
+                          <td
+                            className="py-2.5 px-3 font-ascii-mono text-slate-600 dark:text-neutral-300"
+                            dir="ltr"
+                          >
                             {u.barcode}
                           </td>
                           <td className="py-2.5 px-3 text-slate-700 dark:text-neutral-200">
@@ -915,8 +582,11 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                           <td className="py-2.5 px-3 text-slate-700 dark:text-neutral-300">
                             {u.organizerName}
                           </td>
-                          <td className="py-2.5 px-3 font-mono-num text-slate-600 dark:text-neutral-400">
-                            {formatCairoTime(u.timestamp)}
+                          <td
+                            className="py-2.5 px-3 font-ascii-mono text-slate-600 dark:text-neutral-400"
+                            dir="ltr"
+                          >
+                            {formatDeliveryTime12hEn(u.timestamp)}
                           </td>
                         </tr>
                       ))}

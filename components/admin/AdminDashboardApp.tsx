@@ -3,16 +3,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
-  AlertTriangle,
   ArrowRight,
   BarChart3,
   Calendar,
   CheckCircle2,
   ClipboardList,
+  FileSpreadsheet,
   LogOut,
   Moon,
   Plus,
   QrCode,
+  RefreshCw,
   Settings2,
   Sun,
   Trash2,
@@ -20,7 +21,6 @@ import {
   X,
 } from 'lucide-react';
 import { AdminAuthGate } from './AdminAuthGate';
-import { EventConflictsTab } from './EventConflictsTab';
 import { EventDayReportTab } from './EventDayReportTab';
 import { EventParticipantsTab } from './EventParticipantsTab';
 import { EventSettingsOrganizersTab } from './EventSettingsOrganizersTab';
@@ -33,28 +33,29 @@ import {
   createEventDoc,
   deleteEventDoc,
   fetchAllEventLogs,
-  fetchDeliveryConflictResolutions,
   setActiveEventDoc,
   subscribeEventLogs,
   subscribeEventOrganizers,
   subscribeEventParticipants,
   subscribeEvents,
 } from '@/lib/firestore-store';
+import { fromDateTimeLocalValue, getEventRegistrationState } from '@/lib/marathon-logic';
 import {
-  detectDeliveryConflicts,
-  fromDateTimeLocalValue,
-  getEventRegistrationState,
-} from '@/lib/marathon-logic';
+  computeParticipantDeliveriesFingerprint,
+  formatDeliveryTime12hEn,
+  loadSyncedFingerprints,
+  postAppsScriptWebhookChunks,
+  saveSyncedFingerprints,
+} from '@/lib/sheets-sync';
 import type {
   ActivityLog,
   DeliverableItem,
-  DeliveryConflictResolution,
   MarathonEvent,
   Organizer,
   Participant,
 } from '@/lib/types';
 
-type EventTab = 'tasks' | 'report' | 'conflicts' | 'settings' | 'people';
+type EventTab = 'tasks' | 'report' | 'settings' | 'people';
 
 const THEME_STORAGE_KEY = 'marathon_high_contrast_dark';
 
@@ -75,14 +76,21 @@ export const AdminDashboardApp: React.FC = () => {
   const [eventOrganizers, setEventOrganizers] = useState<Organizer[]>([]);
   const [eventLogs, setEventLogs] = useState<ActivityLog[]>([]);
 
-  // On-demand full logs & offline conflicts state (loaded when opening Report or Conflicts tab or refreshing)
-  const [conflictsEventId, setConflictsEventId] = useState<string | null>(null);
-  const [allConflictLogs, setAllConflictLogs] = useState<ActivityLog[]>([]);
-  const [conflictResolutions, setConflictResolutions] = useState<
-    Record<string, DeliveryConflictResolution>
-  >({});
-  const [loadingConflicts, setLoadingConflicts] = useState(false);
-  const [conflictsLoadError, setConflictsLoadError] = useState<string | null>(null);
+  // On-demand full logs state for General Report (loaded when opening Report tab or refreshing)
+  const [reportLogsEventId, setReportLogsEventId] = useState<string | null>(null);
+  const [allReportLogs, setAllReportLogs] = useState<ActivityLog[]>([]);
+  const [loadingReportLogs, setLoadingReportLogs] = useState(false);
+  const [reportLoadError, setReportLoadError] = useState<string | null>(null);
+
+  // Google Apps Script auto-sync & manual sync state
+  const [sheetsSyncStatus, setSheetsSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [sheetsSyncMessage, setSheetsSyncMessage] = useState<string | null>(null);
+  const [sheetsLastSyncedAt, setSheetsLastSyncedAt] = useState<string | null>(null);
+  const sheetsSyncInFlightRef = useRef(false);
+  const syncedFingerprintsRef = useRef<{ eventId: string; map: Record<string, string> }>({
+    eventId: '',
+    map: {},
+  });
 
   // Create Event modal/panel state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -158,55 +166,169 @@ export const AdminDashboardApp: React.FC = () => {
     };
   }, [isAuthenticated, selectedEventId]);
 
-  const loadConflictsForEvent = useCallback(async (eventId: string) => {
-    setLoadingConflicts(true);
-    setConflictsLoadError(null);
+  const loadReportLogsForEvent = useCallback(async (eventId: string) => {
+    setLoadingReportLogs(true);
+    setReportLoadError(null);
     try {
-      const [fullLogs, resolutions] = await Promise.all([
-        fetchAllEventLogs(eventId),
-        fetchDeliveryConflictResolutions(eventId),
-      ]);
-      setAllConflictLogs(fullLogs);
-      setConflictResolutions(resolutions);
-      setConflictsEventId(eventId);
+      const fullLogs = await fetchAllEventLogs(eventId);
+      setAllReportLogs(fullLogs);
+      setReportLogsEventId(eventId);
     } catch (err) {
-      setConflictsLoadError(
+      setReportLoadError(
         err instanceof Error
           ? `تعذر تحميل السجلات الكاملة: ${err.message}`
           : 'تعذر تحميل السجلات الكاملة من قاعدة البيانات'
       );
     } finally {
-      setLoadingConflicts(false);
+      setLoadingReportLogs(false);
     }
   }, []);
 
-  // Load full logs via paginated getDocs strictly when opening the Conflicts or Report tab
+  // Load full logs via paginated getDocs strictly when opening the Report tab
   useEffect(() => {
-    if (
-      !isAuthenticated ||
-      !selectedEventId ||
-      (activeTab !== 'conflicts' && activeTab !== 'report')
-    ) {
+    if (!isAuthenticated || !selectedEventId || activeTab !== 'report') {
       return;
     }
     let cancelled = false;
     void Promise.resolve().then(async () => {
       if (cancelled) return;
-      await loadConflictsForEvent(selectedEventId);
+      await loadReportLogsForEvent(selectedEventId);
     });
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, selectedEventId, activeTab, loadConflictsForEvent]);
+  }, [isAuthenticated, selectedEventId, activeTab, loadReportLogsForEvent]);
 
-  const openConflictsCount = useMemo(() => {
-    if (!selectedEventId || conflictsEventId !== selectedEventId) return 0;
-    const detected = detectDeliveryConflicts(allConflictLogs, eventOrganizers);
-    return detected.filter((c) => {
-      const res = conflictResolutions[c.conflictKey];
-      return !(res && res.status === 'resolved' && c.deliveries.length <= res.resolvedLogCount);
-    }).length;
-  }, [allConflictLogs, conflictResolutions, conflictsEventId, eventOrganizers, selectedEventId]);
+  // Background debounced auto-sync to Google Apps Script whenever deliveries change
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !selectedEvent ||
+      !selectedEvent.sheetsWebhookUrl ||
+      selectedEvent.sheetsAutoSync === false ||
+      eventParticipants.length === 0
+    ) {
+      return;
+    }
+
+    if (syncedFingerprintsRef.current.eventId !== selectedEvent.id) {
+      syncedFingerprintsRef.current = {
+        eventId: selectedEvent.id,
+        map: loadSyncedFingerprints(selectedEvent.id),
+      };
+    }
+
+    const fpMap = syncedFingerprintsRef.current.map;
+    const changedParticipants: Participant[] = [];
+
+    for (const p of eventParticipants) {
+      const fp = computeParticipantDeliveriesFingerprint(p);
+      const prevFp = fpMap[p.barcode];
+      if (prevFp === undefined) {
+        if (fp !== '') {
+          changedParticipants.push(p);
+        } else {
+          fpMap[p.barcode] = '';
+        }
+      } else if (prevFp !== fp) {
+        changedParticipants.push(p);
+      }
+    }
+
+    if (changedParticipants.length === 0) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled || sheetsSyncInFlightRef.current || !selectedEvent.sheetsWebhookUrl) return;
+      sheetsSyncInFlightRef.current = true;
+      setSheetsSyncStatus('syncing');
+
+      void postAppsScriptWebhookChunks({
+        webhookUrl: selectedEvent.sheetsWebhookUrl,
+        event: selectedEvent,
+        organizers: eventOrganizers,
+        participants: changedParticipants,
+        mode: 'upsert',
+      })
+        .then((res) => {
+          if (cancelled) return;
+          if (res.ok) {
+            const nextMap = { ...syncedFingerprintsRef.current.map };
+            for (const p of changedParticipants) {
+              nextMap[p.barcode] = computeParticipantDeliveriesFingerprint(p);
+            }
+            syncedFingerprintsRef.current = { eventId: selectedEvent.id, map: nextMap };
+            saveSyncedFingerprints(selectedEvent.id, nextMap);
+            setSheetsSyncStatus('success');
+            setSheetsLastSyncedAt(formatDeliveryTime12hEn(new Date().toISOString()));
+            setSheetsSyncMessage(
+              `تمت المزامنة التلقائية (${changedParticipants.length} متسابق)`
+            );
+          } else {
+            setSheetsSyncStatus('error');
+            setSheetsSyncMessage(res.error ?? 'تعذر المزامنة التلقائية مع Google Sheet');
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSheetsSyncStatus('error');
+            setSheetsSyncMessage('تعذر الاتصال بخدمة مزامنة Google Sheet');
+          }
+        })
+        .finally(() => {
+          sheetsSyncInFlightRef.current = false;
+        });
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isAuthenticated, selectedEvent, eventParticipants, eventOrganizers]);
+
+  const handleManualSyncSheets = useCallback(async () => {
+    if (!selectedEvent) return;
+    if (!selectedEvent.sheetsWebhookUrl) {
+      setActiveTab('settings');
+      setSheetsSyncStatus('error');
+      setSheetsSyncMessage('أضف رابط Google Apps Script من الإعدادات أولاً');
+      return;
+    }
+    if (sheetsSyncInFlightRef.current) return;
+    sheetsSyncInFlightRef.current = true;
+    setSheetsSyncStatus('syncing');
+    setSheetsSyncMessage(null);
+    try {
+      const res = await postAppsScriptWebhookChunks({
+        webhookUrl: selectedEvent.sheetsWebhookUrl,
+        event: selectedEvent,
+        organizers: eventOrganizers,
+        participants: eventParticipants,
+        mode: 'full',
+      });
+      if (res.ok) {
+        const nextMap: Record<string, string> = {};
+        for (const p of eventParticipants) {
+          nextMap[p.barcode] = computeParticipantDeliveriesFingerprint(p);
+        }
+        syncedFingerprintsRef.current = { eventId: selectedEvent.id, map: nextMap };
+        saveSyncedFingerprints(selectedEvent.id, nextMap);
+        setSheetsSyncStatus('success');
+        setSheetsLastSyncedAt(formatDeliveryTime12hEn(new Date().toISOString()));
+        setSheetsSyncMessage(
+          `تمت مزامنة الشيت بالكامل (${eventParticipants.length} متسابق)`
+        );
+      } else {
+        setSheetsSyncStatus('error');
+        setSheetsSyncMessage(res.error ?? 'فشلت مزامنة Google Sheet');
+      }
+    } catch {
+      setSheetsSyncStatus('error');
+      setSheetsSyncMessage('فشل الاتصال بـ Google Apps Script');
+    } finally {
+      sheetsSyncInFlightRef.current = false;
+    }
+  }, [selectedEvent, eventOrganizers, eventParticipants]);
 
   const toggleDarkMode = () => {
     const next = !darkMode;
@@ -510,7 +632,7 @@ export const AdminDashboardApp: React.FC = () => {
         ) : (
           /* STAGE 2: Inside Selected Event */
           <div className="space-y-5">
-            <div className="no-print flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <nav
                 aria-label="صفحات الإيفنت"
                 className="flex items-center gap-1.5 overflow-x-auto p-1.5 rounded-2xl bg-slate-200/70 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 w-full sm:w-auto"
@@ -518,18 +640,13 @@ export const AdminDashboardApp: React.FC = () => {
                 {(
                   [
                     { id: 'tasks', label: 'المهام والتسليم', icon: ClipboardList },
-                    { id: 'report', label: 'تقرير اليوم', icon: BarChart3 },
-                    { id: 'conflicts', label: 'التعارضات', icon: AlertTriangle },
+                    { id: 'report', label: 'التقرير', icon: BarChart3 },
                     { id: 'settings', label: 'إعدادات المهام والمنظمين', icon: Settings2 },
                     { id: 'people', label: 'الأشخاص', icon: Users },
                   ] as const
                 ).map((tab) => {
                   const Icon = tab.icon;
                   const active = activeTab === tab.id;
-                  const showConflictBadge =
-                    tab.id === 'conflicts' &&
-                    conflictsEventId === selectedEvent.id &&
-                    openConflictsCount > 0;
                   return (
                     <button
                       key={tab.id}
@@ -544,30 +661,66 @@ export const AdminDashboardApp: React.FC = () => {
                     >
                       <Icon className="w-4 h-4" />
                       <span>{tab.label}</span>
-                      {showConflictBadge && (
-                        <span
-                          data-testid="conflicts-tab-badge"
-                          className="inline-flex items-center justify-center rounded-full bg-amber-600 text-white px-1.5 min-w-[20px] h-5 text-[11px] font-bold font-mono-num"
-                        >
-                          {openConflictsCount}
-                        </span>
-                      )}
                     </button>
                   );
                 })}
               </nav>
 
-              {!selectedEvent.isActive && (
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => void setActiveEventDoc(selectedEvent.id, events)}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-xs font-bold min-h-[44px]"
+                  data-testid="manual-sync-sheets-btn"
+                  disabled={sheetsSyncStatus === 'syncing'}
+                  onClick={() => void handleManualSyncSheets()}
+                  className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2.5 text-xs font-bold min-h-[44px] border transition-colors disabled:opacity-50 ${
+                    selectedEvent.sheetsWebhookUrl
+                      ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/70'
+                      : 'border-slate-300 dark:border-neutral-700 bg-white dark:bg-neutral-950 text-slate-700 dark:text-neutral-200 hover:bg-slate-50 dark:hover:bg-neutral-900'
+                  }`}
                 >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>تحديد هذا الإيفنت كـ شغال الآن</span>
+                  {sheetsSyncStatus === 'syncing' ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="w-4 h-4" />
+                  )}
+                  <span>
+                    {sheetsSyncStatus === 'syncing'
+                      ? 'جاري مزامنة الشيت...'
+                      : selectedEvent.sheetsWebhookUrl
+                      ? 'مزامنة Google Sheet'
+                      : 'ربط Google Sheet'}
+                  </span>
                 </button>
-              )}
+
+                {!selectedEvent.isActive && (
+                  <button
+                    type="button"
+                    onClick={() => void setActiveEventDoc(selectedEvent.id, events)}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-xs font-bold min-h-[44px]"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>تحديد هذا الإيفنت كـ شغال الآن</span>
+                  </button>
+                )}
+              </div>
             </div>
+
+            {sheetsSyncMessage && (
+              <div
+                className={`rounded-xl border px-3.5 py-2 text-xs font-semibold flex flex-wrap items-center justify-between gap-2 ${
+                  sheetsSyncStatus === 'error'
+                    ? 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300'
+                    : 'border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300'
+                }`}
+              >
+                <span>{sheetsSyncMessage}</span>
+                {sheetsLastSyncedAt && (
+                  <span dir="ltr" className="font-ascii-mono">
+                    {sheetsLastSyncedAt}
+                  </span>
+                )}
+              </div>
+            )}
 
             {activeTab === 'tasks' && (
               <EventTasksMonitorTab
@@ -582,32 +735,11 @@ export const AdminDashboardApp: React.FC = () => {
                 event={selectedEvent}
                 participants={eventParticipants}
                 organizers={eventOrganizers}
-                logs={conflictsEventId === selectedEvent.id ? allConflictLogs : []}
-                conflictResolutions={conflictsEventId === selectedEvent.id ? conflictResolutions : {}}
-                loaded={conflictsEventId === selectedEvent.id}
-                loading={loadingConflicts}
-                error={conflictsLoadError}
-                onRefresh={() => loadConflictsForEvent(selectedEvent.id)}
-                onOpenConflictsTab={() => setActiveTab('conflicts')}
-              />
-            )}
-
-            {activeTab === 'conflicts' && (
-              <EventConflictsTab
-                event={selectedEvent}
-                participants={eventParticipants}
-                organizers={eventOrganizers}
-                logs={conflictsEventId === selectedEvent.id ? allConflictLogs : []}
-                resolutions={conflictsEventId === selectedEvent.id ? conflictResolutions : {}}
-                loaded={conflictsEventId === selectedEvent.id}
-                loading={loadingConflicts}
-                onRefresh={() => loadConflictsForEvent(selectedEvent.id)}
-                onResolutionSaved={(res) =>
-                  setConflictResolutions((prev) => ({
-                    ...prev,
-                    [res.id]: res,
-                  }))
-                }
+                logs={reportLogsEventId === selectedEvent.id ? allReportLogs : []}
+                loaded={reportLogsEventId === selectedEvent.id}
+                loading={loadingReportLogs}
+                error={reportLoadError}
+                onRefresh={() => loadReportLogsForEvent(selectedEvent.id)}
               />
             )}
 
@@ -616,6 +748,10 @@ export const AdminDashboardApp: React.FC = () => {
                 key={selectedEvent.id}
                 event={selectedEvent}
                 organizers={eventOrganizers}
+                onManualSyncSheets={handleManualSyncSheets}
+                sheetsSyncStatus={sheetsSyncStatus}
+                sheetsSyncMessage={sheetsSyncMessage}
+                sheetsLastSyncedAt={sheetsLastSyncedAt}
               />
             )}
 

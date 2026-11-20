@@ -42,6 +42,7 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'id', 'name', 'date', 'isActive', 'registrationStatus', 'registrationOpensAt', 'registrationClosesAt',
+        'sheetsWebhookUrl', 'sheetsWebhookSecret', 'sheetsAutoSync',
         'deliverableItems', 'displayFields', 'displayLabels', 'nameField', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
       ]) &&
       isValidId(data.id) &&
@@ -51,6 +52,9 @@ service cloud.firestore {
       (!('registrationStatus' in data) || data.registrationStatus in ['auto', 'open', 'closed']) &&
       (!('registrationOpensAt' in data) || (data.registrationOpensAt is string && data.registrationOpensAt.size() <= 40)) &&
       (!('registrationClosesAt' in data) || (data.registrationClosesAt is string && data.registrationClosesAt.size() <= 40)) &&
+      (!('sheetsWebhookUrl' in data) || (data.sheetsWebhookUrl is string && data.sheetsWebhookUrl.size() <= 500)) &&
+      (!('sheetsWebhookSecret' in data) || (data.sheetsWebhookSecret is string && data.sheetsWebhookSecret.size() <= 128)) &&
+      (!('sheetsAutoSync' in data) || data.sheetsAutoSync is bool) &&
       data.deliverableItems is list && data.deliverableItems.size() <= 20 &&
       data.displayFields is list && data.displayFields.size() <= 20 &&
       (!('displayLabels' in data) || data.displayLabels is map) &&
@@ -145,6 +149,7 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'date', 'isActive', 'registrationStatus', 'registrationOpensAt', 'registrationClosesAt',
+          'sheetsWebhookUrl', 'sheetsWebhookSecret', 'sheetsAutoSync',
           'deliverableItems', 'displayFields', 'displayLabels', 'nameField', 'searchFields', 'totalParticipants'
         ]);
       allow delete: if isValidId(eventId);

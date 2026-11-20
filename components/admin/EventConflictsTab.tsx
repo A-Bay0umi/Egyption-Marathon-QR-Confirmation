@@ -5,19 +5,13 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Eye,
-  EyeOff,
   MapPin,
   RefreshCw,
-  RotateCcw,
-  ShieldAlert,
   Smartphone,
   Wifi,
   WifiOff,
-  X,
 } from 'lucide-react';
-import { verifyAdminPasscode } from '@/lib/admin-auth';
-import { commitAdminUndo, resolveDeliveryConflictDoc } from '@/lib/firestore-store';
+import { resolveDeliveryConflictDoc } from '@/lib/firestore-store';
 import {
   detectDeliveryConflicts,
   extractParticipantDisplayName,
@@ -26,7 +20,6 @@ import {
 } from '@/lib/marathon-logic';
 import type {
   ActivityLog,
-  DeliverableItem,
   DeliveryConflict,
   DeliveryConflictResolution,
   MarathonEvent,
@@ -62,16 +55,6 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
   const [resolvingKey, setResolvingKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Admin passcode modal for commitAdminUndo (same flow as EventTasksMonitorTab)
-  const [pendingUndo, setPendingUndo] = useState<{
-    participant: Participant;
-    item: DeliverableItem;
-  } | null>(null);
-  const [undoPasscode, setUndoPasscode] = useState('');
-  const [showUndoPasscode, setShowUndoPasscode] = useState(false);
-  const [undoPasscodeError, setUndoPasscodeError] = useState<string | null>(null);
-  const [undoingKey, setUndoingKey] = useState<string | null>(null);
-
   const participantByBarcode = useMemo(() => {
     const map = new Map<string, Participant>();
     for (const p of participants) {
@@ -79,14 +62,6 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
     }
     return map;
   }, [participants]);
-
-  const itemById = useMemo(() => {
-    const map = new Map<string, DeliverableItem>();
-    for (const item of event.deliverableItems) {
-      map.set(item.id, item);
-    }
-    return map;
-  }, [event.deliverableItems]);
 
   const conflicts = useMemo(
     () => detectDeliveryConflicts(logs, organizers),
@@ -141,46 +116,6 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
       setActionError('تعذر حفظ حالة المراجعة على Firebase. يرجى المحاولة مرة أخرى.');
     } finally {
       setResolvingKey(null);
-    }
-  };
-
-  const handleRequestUndo = (conflict: DeliveryConflict) => {
-    const participant = participantByBarcode.get(conflict.barcode);
-    if (!participant) return;
-    const item: DeliverableItem =
-      itemById.get(conflict.itemId) ?? { id: conflict.itemId, name: conflict.itemName };
-    setPendingUndo({ participant, item });
-    setUndoPasscode('');
-    setShowUndoPasscode(false);
-    setUndoPasscodeError(null);
-  };
-
-  const handleConfirmUndoWithPasscode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!pendingUndo) return;
-    if (!verifyAdminPasscode(undoPasscode)) {
-      setUndoPasscodeError('كلمة مرور الإدارة غير صحيحة');
-      return;
-    }
-
-    const { participant, item } = pendingUndo;
-    const key = `${participant.barcode}-${item.id}`;
-    setUndoPasscodeError(null);
-    setUndoingKey(key);
-    try {
-      await commitAdminUndo({
-        eventId: event.id,
-        participant,
-        item,
-        adminName: 'مدير السباق',
-        displayFields: event.displayFields,
-        nameField: event.nameField,
-      });
-      setPendingUndo(null);
-      setUndoPasscode('');
-      await onRefresh();
-    } finally {
-      setUndoingKey(null);
     }
   };
 
@@ -431,7 +366,11 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
                   </div>
                 )}
 
-                {/* Action Bar: Review + Undo */}
+                <p className="text-xs text-slate-600 dark:text-neutral-400">
+                  المتسابق استلم العنصر فعلاً، والتسليم الزائد يُعتبر وحدة إضافية خرجت من المخزون
+                </p>
+
+                {/* Action Bar: Review Only */}
                 <div className="pt-2 border-t border-slate-100 dark:border-neutral-800 flex flex-col sm:flex-row sm:items-center gap-2.5">
                   <input
                     type="text"
@@ -464,18 +403,6 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
                           : 'تمت المراجعة'}
                       </span>
                     </button>
-
-                    {participant && recorded?.status === 'delivered' && (
-                      <button
-                        type="button"
-                        data-testid={`conflict-undo-${conflict.conflictKey}`}
-                        onClick={() => handleRequestUndo(conflict)}
-                        className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-xs font-bold min-h-[42px] whitespace-nowrap"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                        <span>إلغاء التسليم</span>
-                      </button>
-                    )}
                   </div>
                 </div>
               </article>
@@ -484,130 +411,6 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
         </div>
       )}
 
-      {/* Passcode Verification Modal for Undo Delivery */}
-      {pendingUndo && (
-        <div
-          data-testid="conflict-undo-passcode-modal"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-        >
-          <div className="w-full max-w-md rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-2xl space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0">
-                  <ShieldAlert className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                    تأكيد إلغاء التسليم
-                  </h3>
-                  <p className="text-xs text-slate-500 dark:text-neutral-400">
-                    يتطلب إدخال كلمة مرور الإدارة
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                aria-label="إغلاق"
-                onClick={() => {
-                  setPendingUndo(null);
-                  setUndoPasscode('');
-                  setUndoPasscodeError(null);
-                }}
-                className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-neutral-800"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black p-3.5 text-xs sm:text-sm space-y-1">
-              <div className="font-bold text-slate-900 dark:text-white">
-                المهمة: {pendingUndo.item.name}
-              </div>
-              <div className="text-slate-600 dark:text-neutral-300">
-                المتسابق:{' '}
-                {extractParticipantDisplayName(
-                  pendingUndo.participant,
-                  event.displayFields,
-                  event.nameField
-                )}{' '}
-                (
-                <span dir="ltr" className="font-ascii-mono">
-                  {pendingUndo.participant.barcode}
-                </span>
-                )
-              </div>
-            </div>
-
-            <form onSubmit={(e) => void handleConfirmUndoWithPasscode(e)} className="space-y-3">
-              <div>
-                <label
-                  htmlFor="conflict-undo-admin-passcode"
-                  className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5"
-                >
-                  كلمة مرور الإدارة
-                </label>
-                <div className="relative">
-                  <input
-                    id="conflict-undo-admin-passcode"
-                    type={showUndoPasscode ? 'text' : 'password'}
-                    dir="ltr"
-                    autoFocus
-                    required
-                    value={undoPasscode}
-                    onChange={(e) => {
-                      setUndoPasscode(e.target.value);
-                      setUndoPasscodeError(null);
-                    }}
-                    placeholder="••••••••••••"
-                    className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pl-11 pr-3.5 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[46px]"
-                  />
-                  <button
-                    type="button"
-                    aria-label={showUndoPasscode ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
-                    onClick={() => setShowUndoPasscode((prev) => !prev)}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-white"
-                  >
-                    {showUndoPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {undoPasscodeError && (
-                <p role="alert" className="text-xs font-bold text-red-600 dark:text-red-400">
-                  {undoPasscodeError}
-                </p>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPendingUndo(null);
-                    setUndoPasscode('');
-                    setUndoPasscodeError(null);
-                  }}
-                  className="rounded-xl border border-slate-300 dark:border-neutral-700 px-4 py-2.5 text-xs font-bold min-h-[44px]"
-                >
-                  تراجع
-                </button>
-                <button
-                  type="submit"
-                  data-testid="confirm-conflict-undo-passcode-btn"
-                  disabled={
-                    !undoPasscode.trim() ||
-                    undoingKey === `${pendingUndo.participant.barcode}-${pendingUndo.item.id}`
-                  }
-                  className="rounded-xl bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 text-xs font-bold min-h-[44px] disabled:opacity-50"
-                >
-                  {undoingKey === `${pendingUndo.participant.barcode}-${pendingUndo.item.id}`
-                    ? 'جاري الإلغاء...'
-                    : 'تأكيد إلغاء التسليم'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

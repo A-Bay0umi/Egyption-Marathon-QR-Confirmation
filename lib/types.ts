@@ -19,6 +19,9 @@ export interface MarathonEvent {
   registrationStatus?: 'auto' | 'open' | 'closed';
   registrationOpensAt?: string;
   registrationClosesAt?: string;
+  sheetsWebhookUrl?: string;
+  sheetsWebhookSecret?: string;
+  sheetsAutoSync?: boolean;
   deliverableItems: DeliverableItem[];
   displayFields: string[];
   displayLabels?: Record<string, string>;

@@ -519,23 +519,7 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
               />
             </div>
 
-            <div>
-              <label
-                htmlFor="sheets-webhook-secret"
-                className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
-              >
-                كود الحماية Secret (اختياري)
-              </label>
-              <input
-                id="sheets-webhook-secret"
-                type="text"
-                dir="ltr"
-                value={webhookSecret}
-                onChange={(e) => setWebhookSecret(e.target.value)}
-                placeholder="مثال: EMQR2026"
-                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
-              />
-            </div>
+
           </div>
 
           <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-neutral-300 cursor-pointer">

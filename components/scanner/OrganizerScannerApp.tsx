@@ -99,10 +99,12 @@ export const OrganizerScannerApp: React.FC = () => {
   const [eventData, setEventData] = useState<MarathonEvent | null>(null);
   const [eventLoaded, setEventLoaded] = useState(false);
   const [organizer, setOrganizer] = useState<Organizer | null>(null);
+  const [allOrganizers, setAllOrganizers] = useState<Organizer[]>([]);
   const [organizerLoaded, setOrganizerLoaded] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [participantPendingWrites, setParticipantPendingWrites] = useState(false);
   const [waitPendingSync, setWaitPendingSync] = useState(false);
+  const wasPendingWritesRef = useRef(false);
 
   // Selected task state (null prompts task picker when organizer has multiple tasks)
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
@@ -186,6 +188,7 @@ export const OrganizerScannerApp: React.FC = () => {
     });
 
     const unsubOrgFallback = subscribeEventOrganizers(sessionEventId, (list) => {
+      setAllOrganizers(list);
       const found = list.find((o) => o.magicToken === sessionToken) ?? null;
       if (found) {
         setOrganizer(found);
@@ -208,6 +211,30 @@ export const OrganizerScannerApp: React.FC = () => {
       unsubParticipants();
     };
   }, [sessionEventId, sessionToken]);
+
+  // Trigger full sheet wipe-and-rewrite once offline writes finish syncing back to Firestore
+  useEffect(() => {
+    if (participantPendingWrites) {
+      wasPendingWritesRef.current = true;
+      return;
+    }
+    if (
+      wasPendingWritesRef.current &&
+      isOnline &&
+      eventData?.sheetsWebhookUrl &&
+      eventData.sheetsAutoSync !== false &&
+      participants.length > 0
+    ) {
+      wasPendingWritesRef.current = false;
+      void postAppsScriptWebhookChunks({
+        webhookUrl: eventData.sheetsWebhookUrl,
+        event: eventData,
+        organizers: allOrganizers.length > 0 ? allOrganizers : organizer ? [organizer] : [],
+        participants,
+        mode: 'full',
+      }).catch(() => {});
+    }
+  }, [participantPendingWrites, isOnline, eventData, allOrganizers, organizer, participants]);
 
   // Auto-route organizer into the currently active event ("شغال الآن") whenever it switches
   const activeEventId = activeEvent?.id ?? '';
@@ -506,12 +533,21 @@ export const OrganizerScannerApp: React.FC = () => {
             .then(() => setWaitPendingSync(false))
             .catch(() => setWaitPendingSync(false));
         } else if (eventData.sheetsWebhookUrl && eventData.sheetsAutoSync !== false) {
+          const exists = participants.some(
+            (p) => p.barcode === result.updatedParticipant.barcode
+          );
+          const fullParticipants = exists
+            ? participants.map((p) =>
+                p.barcode === result.updatedParticipant.barcode ? result.updatedParticipant : p
+              )
+            : [...participants, result.updatedParticipant];
+
           void postAppsScriptWebhookChunks({
             webhookUrl: eventData.sheetsWebhookUrl,
             event: eventData,
-            organizers: [organizer],
-            participants: [result.updatedParticipant],
-            mode: 'upsert',
+            organizers: allOrganizers.length > 0 ? allOrganizers : [organizer],
+            participants: fullParticipants,
+            mode: 'full',
           }).catch(() => {});
         }
         setFeedbackBanner({

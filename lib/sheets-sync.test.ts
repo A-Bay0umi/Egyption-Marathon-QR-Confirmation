@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildAppsScriptPayload,
+  computeEventSheetsSnapshot,
   computeParticipantDeliveriesFingerprint,
   formatDeliveryTime12hEn,
   generateGoogleAppsScriptCode,
@@ -92,13 +93,48 @@ test('buildAppsScriptPayload prepares item delivery status, 12h English time, an
 
   const fpBefore = computeParticipantDeliveriesFingerprint(participants[0]);
   assert.equal(fpBefore.includes('tshirt:delivered:org_1:2026-11-20T12:05:33Z'), true);
+
+  const snap1 = computeEventSheetsSnapshot({ event, organizers, participants });
+  const snap2 = computeEventSheetsSnapshot({
+    event,
+    organizers,
+    participants: [
+      ...participants,
+      {
+        barcode: 'R-102',
+        searchKeywords: ['R102'],
+        dynamicData: { الاسم: 'سارة علي' },
+        deliveries: {},
+      },
+    ],
+  });
+  assert.notEqual(snap1, snap2);
 });
 
-test('generateGoogleAppsScriptCode embeds secret, English headers, and orange/centered formatting', () => {
+test('buildAppsScriptPayload extracts dynamicColumns without duplicating Tkt Number or Name', () => {
+  const payload = buildAppsScriptPayload({
+    event: {
+      id: 'evt_2',
+      name: 'Cairo Run',
+      deliverableItems: [{ id: 'kit', name: 'Race Kit' }],
+      displayFields: ['Tkt Number', 'Name', 'Distance', 'Size'],
+      nameField: 'Name',
+    },
+    organizers: [],
+    participants: [],
+    mode: 'full',
+  });
+  assert.deepEqual(payload.dynamicColumns, ['Distance', 'Size']);
+});
+
+test('generateGoogleAppsScriptCode embeds secret, English headers, full reset, and orange/centered formatting', () => {
   const code = generateGoogleAppsScriptCode("my'secret");
   assert.equal(code.includes("const SECRET = 'my\\'secret';"), true);
   assert.equal(code.includes('LockService.getScriptLock()'), true);
   assert.equal(code.includes('function doPost(e)'), true);
+  assert.equal(code.includes("const isReset = data.mode === 'full';"), true);
+  assert.equal(code.includes('sheet.clearContents();'), true);
+  assert.equal(code.includes('sheet.clearFormats();'), true);
   assert.equal(code.includes("headers = ['Tkt Number', 'Name'];"), true);
   assert.equal(code.includes("item.name + ' - Status'"), true);
   assert.equal(code.includes("item.name + ' - Delivery Time'"), true);

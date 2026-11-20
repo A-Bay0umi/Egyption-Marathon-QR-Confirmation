@@ -3,6 +3,7 @@ import type { MarathonEvent, Organizer, Participant } from './types';
 
 export const CAIRO_TIMEZONE = 'Africa/Cairo';
 const SHEETS_SYNC_FINGERPRINT_PREFIX = 'emqr_sheets_sync_fp_v1_';
+const SHEETS_SYNC_SNAPSHOT_PREFIX = 'emqr_sheets_sync_snap_v2_';
 
 /**
  * Formats an ISO timestamp in Africa/Cairo timezone using strictly English digits,
@@ -61,6 +62,7 @@ export interface AppsScriptSyncPayload {
   eventId: string;
   eventName: string;
   mode: 'upsert' | 'full';
+  dynamicColumns: string[];
   items: Array<{ id: string; name: string }>;
   rows: AppsScriptParticipantRow[];
   sentAt12h: string;
@@ -109,6 +111,53 @@ export function saveSyncedFingerprints(
       `${SHEETS_SYNC_FINGERPRINT_PREFIX}${eventId}`,
       JSON.stringify(fingerprints)
     );
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export function computeEventSheetsSnapshot(params: {
+  event: Pick<
+    MarathonEvent,
+    'id' | 'name' | 'deliverableItems' | 'displayFields' | 'nameField'
+  >;
+  organizers: Organizer[];
+  participants: Participant[];
+}): string {
+  const { event, organizers, participants } = params;
+  const itemsPart = event.deliverableItems.map((i) => `${i.id}:${i.name}`).join(',');
+  const fieldsPart = `${event.nameField ?? ''}|${event.displayFields.join(',')}`;
+  const orgsPart = [...organizers]
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((o) => `${o.id}:${o.name}:${o.boothName ?? ''}`)
+    .join(';');
+  const participantsPart = [...participants]
+    .sort((a, b) => a.barcode.localeCompare(b.barcode))
+    .map((p) => {
+      const dynPart = Object.entries(p.dynamicData ?? {})
+        .sort(([k1], [k2]) => k1.localeCompare(k2))
+        .map(([k, v]) => `${k}=${v}`)
+        .join('&');
+      return `${p.barcode}[${dynPart}][${computeParticipantDeliveriesFingerprint(p)}]`;
+    })
+    .join('\n');
+
+  return `${event.id}#${event.name}#${fieldsPart}#${itemsPart}#${orgsPart}#${participantsPart}`;
+}
+
+export function loadSyncedSnapshot(eventId: string): string | null {
+  if (typeof window === 'undefined' || !eventId) return null;
+  try {
+    return window.localStorage.getItem(`${SHEETS_SYNC_SNAPSHOT_PREFIX}${eventId}`);
+  } catch {
+    return null;
+  }
+}
+
+export function saveSyncedSnapshot(eventId: string, snapshot: string): void {
+  if (typeof window === 'undefined' || !eventId) return;
+  try {
+    window.localStorage.setItem(`${SHEETS_SYNC_SNAPSHOT_PREFIX}${eventId}`, snapshot);
   } catch {
     // Ignore storage quota errors
   }
@@ -176,11 +225,31 @@ export function buildAppsScriptPayload(params: {
     };
   });
 
+  const candidateKeys =
+    event.displayFields.length > 0
+      ? event.displayFields
+      : Object.keys(participants[0]?.dynamicData ?? {});
+
+  const isBarcodeOrNameHeader = (col: string): boolean => {
+    const trimmed = col.trim();
+    if (!trimmed) return true;
+    if (event.nameField && trimmed === event.nameField.trim()) return true;
+    return (
+      /^(tkt|ticket|barcode|باركود|كود|qr)(\s*(number|no|code|id))?$/i.test(trimmed) ||
+      /^(full\s*)?(name|الاسم|اسم)$/i.test(trimmed)
+    );
+  };
+
+  const dynamicColumns = Array.from(
+    new Set(candidateKeys.map((k) => k.trim()).filter((k) => !isBarcodeOrNameHeader(k)))
+  );
+
   return {
     ...(event.sheetsWebhookSecret ? { secret: event.sheetsWebhookSecret } : {}),
     eventId: event.id,
     eventName: event.name,
     mode,
+    dynamicColumns,
     items: event.deliverableItems.map((i) => ({ id: i.id, name: i.name })),
     rows,
     sentAt12h: formatDeliveryTime12hEn(new Date().toISOString()),
@@ -211,21 +280,28 @@ export async function postAppsScriptWebhookChunks(params: {
   chunkSize?: number;
 }): Promise<SyncWebhookResponse> {
   const { webhookUrl, event, organizers, participants, mode } = params;
-  const chunkSize = params.chunkSize ?? 250;
+  const chunkSize = params.chunkSize ?? 500;
 
   if (!isValidAppsScriptUrl(webhookUrl)) {
     return { ok: false, error: 'رابط Google Apps Script غير صالح. يجب أن يبدأ بـ https://script.google.com/' };
   }
 
-  if (participants.length === 0) {
+  if (participants.length === 0 && mode !== 'full') {
     return { ok: true, updatedRows: 0, insertedRows: 0 };
   }
 
   let totalUpdated = 0;
   let totalInserted = 0;
 
-  for (let i = 0; i < participants.length; i += chunkSize) {
-    const slice = participants.slice(i, i + chunkSize);
+  const chunks: Participant[][] =
+    participants.length === 0
+      ? [[]]
+      : Array.from({ length: Math.ceil(participants.length / chunkSize) }, (_, idx) =>
+          participants.slice(idx * chunkSize, (idx + 1) * chunkSize)
+        );
+
+  for (let i = 0; i < chunks.length; i += 1) {
+    const slice = chunks[i];
     const payload = buildAppsScriptPayload({
       event,
       organizers,
@@ -284,14 +360,27 @@ function doPost(e) {
     const sheet = ss.getSheets()[0];
     const items = Array.isArray(data.items) ? data.items : [];
     const rows = Array.isArray(data.rows) ? data.rows : [];
+    const dynamicColumns = Array.isArray(data.dynamicColumns) ? data.dynamicColumns : [];
+    const isReset = data.mode === 'full';
+
+    if (isReset) {
+      sheet.clearContents();
+      sheet.clearFormats();
+    }
 
     let lastCol = sheet.getLastColumn();
-    let headers = lastCol > 0
+    let headers = !isReset && lastCol > 0
       ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h || '').trim(); })
       : [];
 
     if (headers.length === 0) {
       headers = ['Tkt Number', 'Name'];
+      dynamicColumns.forEach(function (col) {
+        const cleanCol = String(col || '').trim();
+        if (cleanCol && headers.indexOf(cleanCol) === -1) {
+          headers.push(cleanCol);
+        }
+      });
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     }
 
@@ -325,7 +414,9 @@ function doPost(e) {
 
     const totalCols = headers.length;
     const lastRow = sheet.getLastRow();
-    let existingGrid = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, totalCols).getValues() : [];
+    let existingGrid = !isReset && lastRow > 1
+      ? sheet.getRange(2, 1, lastRow - 1, totalCols).getValues()
+      : [];
 
     const rowIndexByBarcode = {};
     for (let r = 0; r < existingGrid.length; r++) {

@@ -41,11 +41,11 @@ import {
 } from '@/lib/firestore-store';
 import { fromDateTimeLocalValue, getEventRegistrationState } from '@/lib/marathon-logic';
 import {
-  computeParticipantDeliveriesFingerprint,
+  computeEventSheetsSnapshot,
   formatDeliveryTime12hEn,
-  loadSyncedFingerprints,
+  loadSyncedSnapshot,
   postAppsScriptWebhookChunks,
-  saveSyncedFingerprints,
+  saveSyncedSnapshot,
 } from '@/lib/sheets-sync';
 import type {
   ActivityLog,
@@ -73,6 +73,7 @@ export const AdminDashboardApp: React.FC = () => {
 
   // Selected event sub-data from Firestore
   const [eventParticipants, setEventParticipants] = useState<Participant[]>([]);
+  const [participantsLoadedEventId, setParticipantsLoadedEventId] = useState<string | null>(null);
   const [eventOrganizers, setEventOrganizers] = useState<Organizer[]>([]);
   const [eventLogs, setEventLogs] = useState<ActivityLog[]>([]);
 
@@ -87,9 +88,9 @@ export const AdminDashboardApp: React.FC = () => {
   const [sheetsSyncMessage, setSheetsSyncMessage] = useState<string | null>(null);
   const [sheetsLastSyncedAt, setSheetsLastSyncedAt] = useState<string | null>(null);
   const sheetsSyncInFlightRef = useRef(false);
-  const syncedFingerprintsRef = useRef<{ eventId: string; map: Record<string, string> }>({
+  const syncedSnapshotRef = useRef<{ eventId: string; snapshot: string | null }>({
     eventId: '',
-    map: {},
+    snapshot: null,
   });
 
   // Create Event modal/panel state
@@ -155,7 +156,10 @@ export const AdminDashboardApp: React.FC = () => {
   useEffect(() => {
     if (!isAuthenticated || !selectedEventId) return;
 
-    const unsubParticipants = subscribeEventParticipants(selectedEventId, setEventParticipants);
+    const unsubParticipants = subscribeEventParticipants(selectedEventId, (list) => {
+      setEventParticipants(list);
+      setParticipantsLoadedEventId(selectedEventId);
+    });
     const unsubOrganizers = subscribeEventOrganizers(selectedEventId, setEventOrganizers);
     const unsubLogs = subscribeEventLogs(selectedEventId, setEventLogs);
 
@@ -199,43 +203,38 @@ export const AdminDashboardApp: React.FC = () => {
     };
   }, [isAuthenticated, selectedEventId, activeTab, loadReportLogsForEvent]);
 
-  // Background debounced auto-sync to Google Apps Script whenever deliveries change
+  // Background debounced auto-sync (full sheet reset + rewrite) on ANY change
   useEffect(() => {
     if (
       !isAuthenticated ||
       !selectedEvent ||
       !selectedEvent.sheetsWebhookUrl ||
       selectedEvent.sheetsAutoSync === false ||
-      eventParticipants.length === 0
+      participantsLoadedEventId !== selectedEvent.id
     ) {
       return;
     }
 
-    if (syncedFingerprintsRef.current.eventId !== selectedEvent.id) {
-      syncedFingerprintsRef.current = {
+    if (syncedSnapshotRef.current.eventId !== selectedEvent.id) {
+      syncedSnapshotRef.current = {
         eventId: selectedEvent.id,
-        map: loadSyncedFingerprints(selectedEvent.id),
+        snapshot: loadSyncedSnapshot(selectedEvent.id),
       };
     }
 
-    const fpMap = syncedFingerprintsRef.current.map;
-    const changedParticipants: Participant[] = [];
+    const currentSnapshot = computeEventSheetsSnapshot({
+      event: selectedEvent,
+      organizers: eventOrganizers,
+      participants: eventParticipants,
+    });
+    const prevSnapshot = syncedSnapshotRef.current.snapshot;
 
-    for (const p of eventParticipants) {
-      const fp = computeParticipantDeliveriesFingerprint(p);
-      const prevFp = fpMap[p.barcode];
-      if (prevFp === undefined) {
-        if (fp !== '') {
-          changedParticipants.push(p);
-        } else {
-          fpMap[p.barcode] = '';
-        }
-      } else if (prevFp !== fp) {
-        changedParticipants.push(p);
-      }
+    if (prevSnapshot === null && eventParticipants.length === 0) {
+      return;
     }
-
-    if (changedParticipants.length === 0) return;
+    if (prevSnapshot === currentSnapshot) {
+      return;
+    }
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -247,22 +246,18 @@ export const AdminDashboardApp: React.FC = () => {
         webhookUrl: selectedEvent.sheetsWebhookUrl,
         event: selectedEvent,
         organizers: eventOrganizers,
-        participants: changedParticipants,
-        mode: 'upsert',
+        participants: eventParticipants,
+        mode: 'full',
       })
         .then((res) => {
           if (cancelled) return;
           if (res.ok) {
-            const nextMap = { ...syncedFingerprintsRef.current.map };
-            for (const p of changedParticipants) {
-              nextMap[p.barcode] = computeParticipantDeliveriesFingerprint(p);
-            }
-            syncedFingerprintsRef.current = { eventId: selectedEvent.id, map: nextMap };
-            saveSyncedFingerprints(selectedEvent.id, nextMap);
+            syncedSnapshotRef.current = { eventId: selectedEvent.id, snapshot: currentSnapshot };
+            saveSyncedSnapshot(selectedEvent.id, currentSnapshot);
             setSheetsSyncStatus('success');
             setSheetsLastSyncedAt(formatDeliveryTime12hEn(new Date().toISOString()));
             setSheetsSyncMessage(
-              `تمت المزامنة التلقائية (${changedParticipants.length} متسابق)`
+              `تمت المزامنة التلقائية وإعادة بناء الشيت (${eventParticipants.length} متسابق)`
             );
           } else {
             setSheetsSyncStatus('error');
@@ -278,13 +273,19 @@ export const AdminDashboardApp: React.FC = () => {
         .finally(() => {
           sheetsSyncInFlightRef.current = false;
         });
-    }, 3000);
+    }, 1200);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [isAuthenticated, selectedEvent, eventParticipants, eventOrganizers]);
+  }, [
+    isAuthenticated,
+    selectedEvent,
+    participantsLoadedEventId,
+    eventParticipants,
+    eventOrganizers,
+  ]);
 
   const handleManualSyncSheets = useCallback(async () => {
     if (!selectedEvent) return;
@@ -307,12 +308,13 @@ export const AdminDashboardApp: React.FC = () => {
         mode: 'full',
       });
       if (res.ok) {
-        const nextMap: Record<string, string> = {};
-        for (const p of eventParticipants) {
-          nextMap[p.barcode] = computeParticipantDeliveriesFingerprint(p);
-        }
-        syncedFingerprintsRef.current = { eventId: selectedEvent.id, map: nextMap };
-        saveSyncedFingerprints(selectedEvent.id, nextMap);
+        const snapshot = computeEventSheetsSnapshot({
+          event: selectedEvent,
+          organizers: eventOrganizers,
+          participants: eventParticipants,
+        });
+        syncedSnapshotRef.current = { eventId: selectedEvent.id, snapshot };
+        saveSyncedSnapshot(selectedEvent.id, snapshot);
         setSheetsSyncStatus('success');
         setSheetsLastSyncedAt(formatDeliveryTime12hEn(new Date().toISOString()));
         setSheetsSyncMessage(

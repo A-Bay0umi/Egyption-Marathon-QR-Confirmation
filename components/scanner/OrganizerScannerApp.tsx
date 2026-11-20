@@ -48,6 +48,7 @@ import {
   subscribeEventParticipants,
   subscribeOrganizerByToken,
   subscribeSingleEvent,
+  waitForFirestorePendingWrites,
 } from '@/lib/firestore-store';
 import {
   countEligibleForItem,
@@ -99,6 +100,8 @@ export const OrganizerScannerApp: React.FC = () => {
   const [organizer, setOrganizer] = useState<Organizer | null>(null);
   const [organizerLoaded, setOrganizerLoaded] = useState(false);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [participantPendingWrites, setParticipantPendingWrites] = useState(false);
+  const [waitPendingSync, setWaitPendingSync] = useState(false);
 
   // Selected task state (null prompts task picker when organizer has multiple tasks)
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
@@ -190,7 +193,12 @@ export const OrganizerScannerApp: React.FC = () => {
       }
     });
 
-    const unsubParticipants = subscribeEventParticipants(sessionEventId, setParticipants);
+    const unsubParticipants = subscribeEventParticipants(
+      sessionEventId,
+      setParticipants,
+      undefined,
+      setParticipantPendingWrites
+    );
 
     return () => {
       unsubEvent();
@@ -490,9 +498,18 @@ export const OrganizerScannerApp: React.FC = () => {
 
       if (result.ok) {
         playSuccessSound();
+        const deliveredOffline = !isOnline || Boolean(result.logEntry.viaOffline);
+        if (deliveredOffline) {
+          setWaitPendingSync(true);
+          void waitForFirestorePendingWrites()
+            .then(() => setWaitPendingSync(false))
+            .catch(() => setWaitPendingSync(false));
+        }
         setFeedbackBanner({
           type: 'success',
-          text: `تم تسليم "${item.name}" بنجاح`,
+          text: deliveredOffline
+            ? `تم تسليم "${item.name}" محلياً (أوفلاين) — التأكيد النهائي يتم بعد عودة الاتصال`
+            : `تم تسليم "${item.name}" بنجاح`,
         });
       } else if (result.reason === 'prerequisite_not_met') {
         playDuplicateAlertSound();
@@ -890,6 +907,18 @@ export const OrganizerScannerApp: React.FC = () => {
                     <WifiOff className="w-3.5 h-3.5" />
                     <span>أوفلاين</span>
                   </span>
+                )}
+                {(participantPendingWrites || waitPendingSync) && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span
+                      data-testid="pending-sync-indicator"
+                      className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 font-semibold whitespace-nowrap"
+                    >
+                      <Clock className="w-3 h-3 shrink-0" />
+                      <span>عمليات في انتظار المزامنة</span>
+                    </span>
+                  </>
                 )}
               </div>
             </div>

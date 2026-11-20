@@ -92,7 +92,10 @@ service cloud.firestore {
 
     function isValidActivityLog(data) {
       return data.keys().hasAll(['participantName', 'barcode', 'itemName', 'organizerName', 'action', 'timestamp']) &&
-      data.keys().hasOnly(['participantName', 'barcode', 'itemId', 'itemName', 'organizerId', 'organizerName', 'action', 'timestamp']) &&
+      data.keys().hasOnly([
+        'participantName', 'barcode', 'itemId', 'itemName', 'organizerId', 'organizerName',
+        'action', 'timestamp', 'viaOffline', 'clientDeliveredAt', 'deviceId'
+      ]) &&
       data.participantName is string && data.participantName.size() >= 1 && data.participantName.size() <= 200 &&
       data.barcode is string && data.barcode.size() >= 1 && data.barcode.size() <= 128 &&
       (!('itemId' in data) || (data.itemId is string && data.itemId.size() <= 128)) &&
@@ -100,7 +103,21 @@ service cloud.firestore {
       (!('organizerId' in data) || (data.organizerId is string && data.organizerId.size() <= 128)) &&
       data.organizerName is string && data.organizerName.size() >= 1 && data.organizerName.size() <= 120 &&
       data.action in ['delivered', 'undone'] &&
-      data.timestamp == request.time;
+      data.timestamp == request.time &&
+      (!('viaOffline' in data) || data.viaOffline is bool) &&
+      (!('clientDeliveredAt' in data) || (data.clientDeliveredAt is string && data.clientDeliveredAt.size() <= 40)) &&
+      (!('deviceId' in data) || (data.deviceId is string && data.deviceId.size() <= 64));
+    }
+
+    function isValidDeliveryConflictResolution(data) {
+      return data.keys().hasAll(['barcode', 'itemId', 'status', 'resolvedLogCount', 'resolvedAt']) &&
+      data.keys().hasOnly(['barcode', 'itemId', 'status', 'note', 'resolvedLogCount', 'resolvedAt']) &&
+      isValidId(data.barcode) &&
+      isValidId(data.itemId) &&
+      data.status == 'resolved' &&
+      (!('note' in data) || (data.note is string && data.note.size() <= 500)) &&
+      data.resolvedLogCount is int && data.resolvedLogCount >= 2 && data.resolvedLogCount <= 1000 &&
+      data.resolvedAt == request.time;
     }
 
     // Admins registry
@@ -157,6 +174,23 @@ service cloud.firestore {
           isValidActivityLog(incoming()) &&
           exists(/databases/$(database)/documents/events/$(eventId));
         allow update, delete: if false;
+      }
+
+      // Delivery conflict review records sub-collection
+      match /delivery_conflicts/{conflictId} {
+        allow get: if isValidId(eventId) && isValidId(conflictId);
+        allow list: if isValidId(eventId) &&
+          exists(/databases/$(database)/documents/events/$(eventId));
+        allow create: if isValidId(eventId) && isValidId(conflictId) &&
+          isValidDeliveryConflictResolution(incoming()) &&
+          conflictId == incoming().barcode + '__' + incoming().itemId &&
+          exists(/databases/$(database)/documents/events/$(eventId));
+        allow update: if isValidId(eventId) && isValidId(conflictId) &&
+          isValidDeliveryConflictResolution(incoming()) &&
+          incoming().barcode == existing().barcode &&
+          incoming().itemId == existing().itemId &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'note', 'resolvedLogCount', 'resolvedAt']);
+        allow delete: if false;
       }
     }
 

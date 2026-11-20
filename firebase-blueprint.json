@@ -65,9 +65,26 @@
         "organizerId": { "type": "string", "maxLength": 128 },
         "organizerName": { "type": "string", "minLength": 1, "maxLength": 120 },
         "action": { "type": "string", "enum": ["delivered", "undone"] },
-        "timestamp": { "type": "string", "format": "date-time" }
+        "timestamp": { "type": "string", "format": "date-time" },
+        "viaOffline": { "type": "boolean" },
+        "clientDeliveredAt": { "type": "string", "format": "date-time", "maxLength": 40 },
+        "deviceId": { "type": "string", "maxLength": 64 }
       },
       "required": ["participantName", "barcode", "itemName", "organizerName", "action", "timestamp"]
+    },
+    "DeliveryConflictResolution": {
+      "title": "DeliveryConflictResolution",
+      "description": "Admin review record for an offline duplicate delivery conflict keyed by barcode__itemId.",
+      "type": "object",
+      "properties": {
+        "barcode": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "itemId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "status": { "type": "string", "enum": ["resolved"] },
+        "note": { "type": "string", "maxLength": 500 },
+        "resolvedLogCount": { "type": "integer" },
+        "resolvedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["barcode", "itemId", "status", "resolvedLogCount", "resolvedAt"]
     }
   },
   "firestore": {
@@ -86,6 +103,10 @@
     "/events/{eventId}/activity_logs/{logId}": {
       "schema": { "$ref": "#/entities/ActivityLog" },
       "description": "Immutable audit feed of deliveries and admin undo actions."
+    },
+    "/events/{eventId}/delivery_conflicts/{conflictId}": {
+      "schema": { "$ref": "#/entities/DeliveryConflictResolution" },
+      "description": "Resolved status and review notes for duplicate offline delivery conflicts."
     },
     "/admins/{adminUid}": {
       "schema": "Admin",

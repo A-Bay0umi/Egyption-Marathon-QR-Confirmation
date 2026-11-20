@@ -5,8 +5,9 @@
 2. Organizers cannot list all organizers or scrape other booths' tokens (`allow list` on `organizers` is strictly Admin-only).
 3. Organizers cannot delete any participant, event, or log document.
 4. Organizers cannot modify `dynamicData`, `barcode`, or `searchKeywords` on a participant, nor overwrite or remove an already-delivered item in `deliveries`.
-5. `activity_logs` are append-only: `update` and `delete` are unconditionally denied (`false`), and non-admins can only append `action == 'delivered'` entries.
-6. Every document ID path variable must satisfy `isValidId()` (`^[a-zA-Z0-9_\-]+$`, `<= 128` chars), and every string/array field has strict size bounds.
+5. `activity_logs` are append-only: `update` and `delete` are unconditionally denied (`false`), non-admins can only append `action == 'delivered'` entries, and optional offline sync fields (`viaOffline` bool, `clientDeliveredAt` <= 40 chars, `deviceId` <= 64 chars) are strictly type/size-bounded.
+6. `delivery_conflicts` review records (`events/{eventId}/delivery_conflicts/{barcode__itemId}`) require strict schema validation (`hasOnly`, `status == 'resolved'`, `note <= 500` chars, `resolvedLogCount` integer `[2..1000]`, server-enforced `resolvedAt == request.time`, immutable `barcode`/`itemId`, and `delete: false`).
+7. Every document ID path variable must satisfy `isValidId()` (`^[a-zA-Z0-9_\-]+$`, `<= 128` chars), and every string/array field has strict size bounds.
 
 ## 2. The "Dirty Dozen" Adversarial Payloads
 1. **Unauthenticated Event Creation**: Anonymous user attempts `create` on `/events/evt_1` -> `PERMISSION_DENIED`.
@@ -17,7 +18,7 @@
 6. **Overwrite Existing Delivery**: Non-admin attempts to overwrite an already-delivered `deliveries.tshirt` map entry -> `PERMISSION_DENIED`.
 7. **Shadow Field Injection on Event**: Admin payload includes unexpected key `isSuperAdmin: true` -> `PERMISSION_DENIED` via `hasOnly()`.
 8. **ID Poisoning**: Document ID > 128 chars or containing slashes/spaces -> `PERMISSION_DENIED` via `isValidId()`.
-9. **Client Timestamp Forgery**: `createdAt` or `timestamp` set to arbitrary past string instead of `request.time` -> `PERMISSION_DENIED`.
+9. **Client Timestamp Forgery**: `createdAt`, `timestamp`, or `resolvedAt` set to arbitrary past string instead of `request.time` -> `PERMISSION_DENIED`.
 10. **PII Modification by Organizer**: Non-admin updates `dynamicData` or `barcode` during delivery -> `PERMISSION_DENIED` via `affectedKeys().hasOnly(['deliveries'])`.
-11. **Audit Log Tampering**: Any user (even Admin) attempts `update` or `delete` on `/events/evt_1/activity_logs/log_1` -> `PERMISSION_DENIED`.
-12. **Blanket Participant Listing Without Active Event**: Unauthenticated user attempts `list` on `/events/evt_inactive/participants` -> `PERMISSION_DENIED`.
+11. **Audit Log & Conflict History Tampering**: Any user attempts `update` or `delete` on `/events/evt_1/activity_logs/log_1` or `delete` on `/events/evt_1/delivery_conflicts/1001__tshirt` -> `PERMISSION_DENIED`.
+12. **Conflict Resolution Schema & Bounds Bypass**: Writing `delivery_conflicts` with mismatched `conflictId`, `note` > 500 chars, or `resolvedLogCount < 2` -> `PERMISSION_DENIED`.

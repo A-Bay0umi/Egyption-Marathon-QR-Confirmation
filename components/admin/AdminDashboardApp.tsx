@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
+  AlertTriangle,
   ArrowRight,
+  BarChart3,
   Calendar,
   CheckCircle2,
   ClipboardList,
@@ -18,6 +20,8 @@ import {
   X,
 } from 'lucide-react';
 import { AdminAuthGate } from './AdminAuthGate';
+import { EventConflictsTab } from './EventConflictsTab';
+import { EventDayReportTab } from './EventDayReportTab';
 import { EventParticipantsTab } from './EventParticipantsTab';
 import { EventSettingsOrganizersTab } from './EventSettingsOrganizersTab';
 import { EventTasksMonitorTab } from './EventTasksMonitorTab';
@@ -28,6 +32,8 @@ import { testFirestoreConnection } from '@/lib/firebase';
 import {
   createEventDoc,
   deleteEventDoc,
+  fetchAllEventLogs,
+  fetchDeliveryConflictResolutions,
   setActiveEventDoc,
   subscribeEventLogs,
   subscribeEventOrganizers,
@@ -35,12 +41,20 @@ import {
   subscribeEvents,
 } from '@/lib/firestore-store';
 import {
+  detectDeliveryConflicts,
   fromDateTimeLocalValue,
   getEventRegistrationState,
 } from '@/lib/marathon-logic';
-import type { ActivityLog, DeliverableItem, MarathonEvent, Organizer, Participant } from '@/lib/types';
+import type {
+  ActivityLog,
+  DeliverableItem,
+  DeliveryConflictResolution,
+  MarathonEvent,
+  Organizer,
+  Participant,
+} from '@/lib/types';
 
-type EventTab = 'tasks' | 'settings' | 'people';
+type EventTab = 'tasks' | 'report' | 'conflicts' | 'settings' | 'people';
 
 const THEME_STORAGE_KEY = 'marathon_high_contrast_dark';
 
@@ -60,6 +74,15 @@ export const AdminDashboardApp: React.FC = () => {
   const [eventParticipants, setEventParticipants] = useState<Participant[]>([]);
   const [eventOrganizers, setEventOrganizers] = useState<Organizer[]>([]);
   const [eventLogs, setEventLogs] = useState<ActivityLog[]>([]);
+
+  // On-demand full logs & offline conflicts state (loaded when opening Report or Conflicts tab or refreshing)
+  const [conflictsEventId, setConflictsEventId] = useState<string | null>(null);
+  const [allConflictLogs, setAllConflictLogs] = useState<ActivityLog[]>([]);
+  const [conflictResolutions, setConflictResolutions] = useState<
+    Record<string, DeliveryConflictResolution>
+  >({});
+  const [loadingConflicts, setLoadingConflicts] = useState(false);
+  const [conflictsLoadError, setConflictsLoadError] = useState<string | null>(null);
 
   // Create Event modal/panel state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -134,6 +157,56 @@ export const AdminDashboardApp: React.FC = () => {
       unsubLogs();
     };
   }, [isAuthenticated, selectedEventId]);
+
+  const loadConflictsForEvent = useCallback(async (eventId: string) => {
+    setLoadingConflicts(true);
+    setConflictsLoadError(null);
+    try {
+      const [fullLogs, resolutions] = await Promise.all([
+        fetchAllEventLogs(eventId),
+        fetchDeliveryConflictResolutions(eventId),
+      ]);
+      setAllConflictLogs(fullLogs);
+      setConflictResolutions(resolutions);
+      setConflictsEventId(eventId);
+    } catch (err) {
+      setConflictsLoadError(
+        err instanceof Error
+          ? `تعذر تحميل السجلات الكاملة: ${err.message}`
+          : 'تعذر تحميل السجلات الكاملة من قاعدة البيانات'
+      );
+    } finally {
+      setLoadingConflicts(false);
+    }
+  }, []);
+
+  // Load full logs via paginated getDocs strictly when opening the Conflicts or Report tab
+  useEffect(() => {
+    if (
+      !isAuthenticated ||
+      !selectedEventId ||
+      (activeTab !== 'conflicts' && activeTab !== 'report')
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.resolve().then(async () => {
+      if (cancelled) return;
+      await loadConflictsForEvent(selectedEventId);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, selectedEventId, activeTab, loadConflictsForEvent]);
+
+  const openConflictsCount = useMemo(() => {
+    if (!selectedEventId || conflictsEventId !== selectedEventId) return 0;
+    const detected = detectDeliveryConflicts(allConflictLogs, eventOrganizers);
+    return detected.filter((c) => {
+      const res = conflictResolutions[c.conflictKey];
+      return !(res && res.status === 'resolved' && c.deliveries.length <= res.resolvedLogCount);
+    }).length;
+  }, [allConflictLogs, conflictResolutions, conflictsEventId, eventOrganizers, selectedEventId]);
 
   const toggleDarkMode = () => {
     const next = !darkMode;
@@ -435,10 +508,9 @@ export const AdminDashboardApp: React.FC = () => {
             )}
           </div>
         ) : (
-          /* STAGE 2: Inside Selected Event -> Strictly 3 Focused Tabs */
+          /* STAGE 2: Inside Selected Event */
           <div className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              {/* 3 Focused Tabs */}
+            <div className="no-print flex flex-wrap items-center justify-between gap-3">
               <nav
                 aria-label="صفحات الإيفنت"
                 className="flex items-center gap-1.5 overflow-x-auto p-1.5 rounded-2xl bg-slate-200/70 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 w-full sm:w-auto"
@@ -446,16 +518,23 @@ export const AdminDashboardApp: React.FC = () => {
                 {(
                   [
                     { id: 'tasks', label: 'المهام والتسليم', icon: ClipboardList },
+                    { id: 'report', label: 'تقرير اليوم', icon: BarChart3 },
+                    { id: 'conflicts', label: 'التعارضات', icon: AlertTriangle },
                     { id: 'settings', label: 'إعدادات المهام والمنظمين', icon: Settings2 },
                     { id: 'people', label: 'الأشخاص', icon: Users },
                   ] as const
                 ).map((tab) => {
                   const Icon = tab.icon;
                   const active = activeTab === tab.id;
+                  const showConflictBadge =
+                    tab.id === 'conflicts' &&
+                    conflictsEventId === selectedEvent.id &&
+                    openConflictsCount > 0;
                   return (
                     <button
                       key={tab.id}
                       type="button"
+                      data-testid={`event-tab-${tab.id}`}
                       onClick={() => setActiveTab(tab.id)}
                       className={`flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold whitespace-nowrap shrink-0 min-h-[44px] transition-colors ${
                         active
@@ -465,6 +544,14 @@ export const AdminDashboardApp: React.FC = () => {
                     >
                       <Icon className="w-4 h-4" />
                       <span>{tab.label}</span>
+                      {showConflictBadge && (
+                        <span
+                          data-testid="conflicts-tab-badge"
+                          className="inline-flex items-center justify-center rounded-full bg-amber-600 text-white px-1.5 min-w-[20px] h-5 text-[11px] font-bold font-mono-num"
+                        >
+                          {openConflictsCount}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -487,6 +574,40 @@ export const AdminDashboardApp: React.FC = () => {
                 event={selectedEvent}
                 participants={eventParticipants}
                 logs={eventLogs}
+              />
+            )}
+
+            {activeTab === 'report' && (
+              <EventDayReportTab
+                event={selectedEvent}
+                participants={eventParticipants}
+                organizers={eventOrganizers}
+                logs={conflictsEventId === selectedEvent.id ? allConflictLogs : []}
+                conflictResolutions={conflictsEventId === selectedEvent.id ? conflictResolutions : {}}
+                loaded={conflictsEventId === selectedEvent.id}
+                loading={loadingConflicts}
+                error={conflictsLoadError}
+                onRefresh={() => loadConflictsForEvent(selectedEvent.id)}
+                onOpenConflictsTab={() => setActiveTab('conflicts')}
+              />
+            )}
+
+            {activeTab === 'conflicts' && (
+              <EventConflictsTab
+                event={selectedEvent}
+                participants={eventParticipants}
+                organizers={eventOrganizers}
+                logs={conflictsEventId === selectedEvent.id ? allConflictLogs : []}
+                resolutions={conflictsEventId === selectedEvent.id ? conflictResolutions : {}}
+                loaded={conflictsEventId === selectedEvent.id}
+                loading={loadingConflicts}
+                onRefresh={() => loadConflictsForEvent(selectedEvent.id)}
+                onResolutionSaved={(res) =>
+                  setConflictResolutions((prev) => ({
+                    ...prev,
+                    [res.id]: res,
+                  }))
+                }
               />
             )}
 

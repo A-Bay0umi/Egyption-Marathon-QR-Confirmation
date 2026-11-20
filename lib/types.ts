@@ -60,6 +60,39 @@ export interface ActivityLog {
   organizerName: string;
   action: 'delivered' | 'undone';
   timestamp: string;
+  viaOffline?: boolean;
+  clientDeliveredAt?: string;
+  deviceId?: string;
+}
+
+export interface ConflictDeliveryEntry {
+  logId: string;
+  organizerId: string;
+  organizerName: string;
+  boothName?: string;
+  timestamp: string;
+  clientDeliveredAt?: string;
+  viaOffline: boolean;
+  deviceId?: string;
+}
+
+export interface DeliveryConflict {
+  conflictKey: string;
+  barcode: string;
+  participantName: string;
+  itemId: string;
+  itemName: string;
+  deliveries: ConflictDeliveryEntry[];
+}
+
+export interface DeliveryConflictResolution {
+  id: string;
+  barcode: string;
+  itemId: string;
+  status: 'resolved';
+  note?: string;
+  resolvedLogCount: number;
+  resolvedAt: string;
 }
 
 export interface ColumnMapping {

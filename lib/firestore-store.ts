@@ -5,6 +5,7 @@ import {
   deleteDoc,
   deleteField,
   doc,
+  FieldPath,
   getDocs,
   increment,
   limit,
@@ -14,9 +15,14 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  startAfter,
   updateDoc,
+  waitForPendingWrites,
   where,
   writeBatch,
+  type DocumentData,
+  type Query,
+  type QueryDocumentSnapshot,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { getFirebaseServices, handleFirestoreError, OperationType } from './firebase';
@@ -29,10 +35,31 @@ import {
 import type {
   ActivityLog,
   DeliverableItem,
+  DeliveryConflictResolution,
   MarathonEvent,
   Organizer,
   Participant,
 } from './types';
+
+const DEVICE_ID_STORAGE_KEY = 'emqr_device_id_v1';
+
+export function getOrCreateDeviceId(): string {
+  if (typeof window === 'undefined') return 'srv';
+  try {
+    const existing = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+    if (existing && existing.trim()) return existing.trim().slice(0, 64);
+    const created = `dev_${Math.random().toString(36).slice(2, 10)}`;
+    window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return `dev_${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
+export async function waitForFirestorePendingWrites(): Promise<void> {
+  const { db } = getFirebaseServices();
+  await waitForPendingWrites(db);
+}
 
 function toIsoString(val: unknown): string {
   if (val && typeof val === 'object' && 'toDate' in val && typeof (val as { toDate: () => Date }).toDate === 'function') {
@@ -221,17 +248,45 @@ export function subscribeOrganizerByToken(
   );
 }
 
+function mapActivityLogDoc(
+  eventId: string,
+  id: string,
+  data: Record<string, unknown>
+): ActivityLog {
+  return {
+    id,
+    eventId,
+    participantName: String(data.participantName ?? ''),
+    barcode: String(data.barcode ?? ''),
+    itemId: String(data.itemId ?? ''),
+    itemName: String(data.itemName ?? ''),
+    organizerId: String(data.organizerId ?? ''),
+    organizerName: String(data.organizerName ?? ''),
+    action: data.action === 'undone' ? 'undone' : 'delivered',
+    timestamp: toIsoString(data.timestamp),
+    viaOffline: typeof data.viaOffline === 'boolean' ? data.viaOffline : undefined,
+    clientDeliveredAt:
+      typeof data.clientDeliveredAt === 'string' && data.clientDeliveredAt
+        ? data.clientDeliveredAt
+        : undefined,
+    deviceId: typeof data.deviceId === 'string' && data.deviceId ? data.deviceId : undefined,
+  };
+}
+
 export function subscribeEventParticipants(
   eventId: string,
   onParticipants: (participants: Participant[]) => void,
-  onError?: (err: Error) => void
+  onError?: (err: Error) => void,
+  onPendingWritesChange?: (hasPendingWrites: boolean) => void
 ): Unsubscribe {
   if (!eventId) return () => {};
   const { db } = getFirebaseServices();
   const q = collection(db, 'events', eventId, 'participants');
   return onSnapshot(
     q,
+    { includeMetadataChanges: true },
     (snap) => {
+      onPendingWritesChange?.(snap.metadata.hasPendingWrites);
       const list = snap.docs.map((d) => mapParticipantDoc(d.id, d.data()));
       onParticipants(list);
     },
@@ -256,27 +311,119 @@ export function subscribeEventLogs(
   return onSnapshot(
     q,
     (snap) => {
-      const list: ActivityLog[] = snap.docs.map((d) => {
-        const data = d.data();
-        return {
-          id: d.id,
-          eventId,
-          participantName: String(data.participantName ?? ''),
-          barcode: String(data.barcode ?? ''),
-          itemId: String(data.itemId ?? ''),
-          itemName: String(data.itemName ?? ''),
-          organizerId: String(data.organizerId ?? ''),
-          organizerName: String(data.organizerName ?? ''),
-          action: data.action === 'undone' ? 'undone' : 'delivered',
-          timestamp: toIsoString(data.timestamp),
-        };
-      });
+      const list: ActivityLog[] = snap.docs.map((d) =>
+        mapActivityLogDoc(eventId, d.id, d.data())
+      );
       onLogs(list);
     },
     (err) => {
       console.warn('Activity logs listener warning:', err.message);
     }
   );
+}
+
+export async function fetchAllEventLogs(eventId: string): Promise<ActivityLog[]> {
+  if (!eventId) return [];
+  const { db } = getFirebaseServices();
+  const PAGE_SIZE = 500;
+  const allLogs: ActivityLog[] = [];
+  let lastDoc: QueryDocumentSnapshot<DocumentData> | null = null;
+
+  try {
+    while (true) {
+      const q: Query<DocumentData> = lastDoc
+        ? query(
+            collection(db, 'events', eventId, 'activity_logs'),
+            orderBy('timestamp', 'asc'),
+            startAfter(lastDoc),
+            limit(PAGE_SIZE)
+          )
+        : query(
+            collection(db, 'events', eventId, 'activity_logs'),
+            orderBy('timestamp', 'asc'),
+            limit(PAGE_SIZE)
+          );
+
+      const snap = await getDocs(q);
+      for (const d of snap.docs) {
+        allLogs.push(mapActivityLogDoc(eventId, d.id, d.data()));
+      }
+      if (snap.docs.length < PAGE_SIZE) {
+        break;
+      }
+      lastDoc = snap.docs[snap.docs.length - 1];
+    }
+    return allLogs;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, `events/${eventId}/activity_logs`);
+  }
+}
+
+export async function fetchDeliveryConflictResolutions(
+  eventId: string
+): Promise<Record<string, DeliveryConflictResolution>> {
+  if (!eventId) return {};
+  const { db } = getFirebaseServices();
+  try {
+    const snap = await getDocs(collection(db, 'events', eventId, 'delivery_conflicts'));
+    const map: Record<string, DeliveryConflictResolution> = {};
+    for (const d of snap.docs) {
+      const data = d.data();
+      map[d.id] = {
+        id: d.id,
+        barcode: String(data.barcode ?? ''),
+        itemId: String(data.itemId ?? ''),
+        status: 'resolved',
+        note: typeof data.note === 'string' && data.note ? data.note : undefined,
+        resolvedLogCount: typeof data.resolvedLogCount === 'number' ? data.resolvedLogCount : 2,
+        resolvedAt: toIsoString(data.resolvedAt),
+      };
+    }
+    return map;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.LIST, `events/${eventId}/delivery_conflicts`);
+  }
+}
+
+export async function resolveDeliveryConflictDoc(params: {
+  eventId: string;
+  barcode: string;
+  itemId: string;
+  resolvedLogCount: number;
+  note?: string;
+}): Promise<DeliveryConflictResolution> {
+  const { db } = getFirebaseServices();
+  const conflictId = `${params.barcode}__${params.itemId}`;
+  const cleanNote = params.note?.trim().slice(0, 500);
+  const payload: Record<string, unknown> = {
+    barcode: params.barcode,
+    itemId: params.itemId,
+    status: 'resolved',
+    resolvedLogCount: Math.max(2, params.resolvedLogCount),
+    resolvedAt: serverTimestamp(),
+  };
+  if (cleanNote) {
+    payload.note = cleanNote;
+  }
+
+  try {
+    await setDoc(doc(db, 'events', params.eventId, 'delivery_conflicts', conflictId), payload);
+    return {
+      id: conflictId,
+      barcode: params.barcode,
+      itemId: params.itemId,
+      status: 'resolved',
+      note: cleanNote || undefined,
+      resolvedLogCount: Math.max(2, params.resolvedLogCount),
+      resolvedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    handleFirestoreError(
+      err,
+      OperationType.WRITE,
+      `events/${params.eventId}/delivery_conflicts/${conflictId}`
+    );
+  }
 }
 
 function sanitizeDeliverableItems(items: DeliverableItem[]): DeliverableItem[] {
@@ -637,8 +784,13 @@ export async function commitAtomicDelivery(params: {
   nameField?: string;
   allItems?: DeliverableItem[];
   isOnline: boolean;
+  deviceId?: string;
 }) {
-  const { eventId, participant, organizer, item, displayFields, nameField, allItems, isOnline } = params;
+  const { eventId, participant, organizer, item, displayFields, nameField, allItems, isOnline } =
+    params;
+  const clientDeliveredAt = new Date().toISOString();
+  const deviceId = params.deviceId ?? getOrCreateDeviceId();
+
   const localCheck = attemptLocalDelivery({
     eventId,
     participant,
@@ -647,6 +799,10 @@ export async function commitAtomicDelivery(params: {
     displayFields,
     nameField,
     allItems,
+    nowIso: clientDeliveredAt,
+    viaOffline: !isOnline,
+    clientDeliveredAt,
+    deviceId,
   });
 
   if (!localCheck.ok) {
@@ -703,6 +859,9 @@ export async function commitAtomicDelivery(params: {
           organizerName: organizer.name,
           action: 'delivered',
           timestamp: serverTimestamp(),
+          viaOffline: false,
+          clientDeliveredAt,
+          deviceId,
         });
       });
       return localCheck;
@@ -735,14 +894,14 @@ export async function commitAtomicDelivery(params: {
   }
 
   // Offline / Persistent Local Cache writeBatch (automatically queues & syncs on reconnect)
+  // Updates only deliveries.<item.id> via FieldPath so concurrent offline deliveries of other items are never overwritten.
   try {
     const batch = writeBatch(db);
-    batch.update(participantRef, {
-      deliveries: {
-        ...participant.deliveries,
-        [item.id]: localCheck.deliveryRecord,
-      },
-    });
+    batch.update(
+      participantRef,
+      new FieldPath('deliveries', item.id),
+      localCheck.deliveryRecord
+    );
     batch.update(organizerRef, {
       deliveredCount: increment(1),
     });
@@ -755,9 +914,18 @@ export async function commitAtomicDelivery(params: {
       organizerName: organizer.name,
       action: 'delivered',
       timestamp: serverTimestamp(),
+      viaOffline: true,
+      clientDeliveredAt,
+      deviceId,
     });
     await batch.commit();
-    return localCheck;
+    return {
+      ...localCheck,
+      logEntry: {
+        ...localCheck.logEntry,
+        viaOffline: true,
+      },
+    };
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `events/${eventId}/participants/${participant.barcode}`);
   }

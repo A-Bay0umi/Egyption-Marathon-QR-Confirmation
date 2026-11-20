@@ -10,4 +10,11 @@ test('firestore.rules enforces default deny and eight pillars', () => {
   assert.match(rules, /function isAdmin\(\)/);
   assert.match(rules, /email_verified == true/);
   assert.match(rules, /allow update, delete: if false;/);
+  assert.match(rules, /viaOffline/);
+  assert.match(rules, /clientDeliveredAt/);
+  assert.match(rules, /deviceId/);
+  assert.match(rules, /function isValidDeliveryConflictResolution\(data\)/);
+  assert.match(rules, /match \/delivery_conflicts\/\{conflictId\}/);
+  assert.match(rules, /data\.resolvedAt == request\.time/);
+  assert.match(rules, /data\.note\.size\(\) <= 500/);
 });

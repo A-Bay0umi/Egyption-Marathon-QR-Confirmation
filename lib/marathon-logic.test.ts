@@ -5,6 +5,7 @@ import {
   attemptLocalDelivery,
   autoSuggestColumnMapping,
   computeEventStats,
+  detectDeliveryConflicts,
   extractParticipantDisplayName,
   generateSearchKeywords,
   isPrerequisiteMet,
@@ -20,7 +21,7 @@ import {
   parseOrganizerMagicInput,
   verifyAdminPasscode,
 } from './admin-auth';
-import type { DeliverableItem, MarathonEvent, Organizer, Participant } from './types';
+import type { ActivityLog, DeliverableItem, MarathonEvent, Organizer, Participant } from './types';
 
 const sampleOrganizer: Organizer = {
   id: 'org_1',
@@ -216,7 +217,7 @@ test('computeEventStats and autoSuggestColumnMapping return accurate output', ()
 test('verifyAdminPasscode validates NR@2026 strictly', () => {
   assert.equal(verifyAdminPasscode('NR@2026'), true);
   assert.equal(verifyAdminPasscode('  NR@2026  '), true);
-  assert.equal(verifyAdminPasscode('NR@2026'), false);
+  assert.equal(verifyAdminPasscode('nr@2026'), false);
   assert.equal(verifyAdminPasscode('wrong'), false);
 });
 
@@ -353,6 +354,119 @@ test('sequential task prerequisites block premature delivery and chain progress 
   assert.equal(stats[2].delivered, 0);
   assert.equal(stats[2].total, 1);
   assert.equal(stats[2].prerequisiteName, 'التيشيرت');
+});
+
+test('detectDeliveryConflicts detects duplicate offline deliveries, ignores undone-then-redelivered, and captures triple deliveries', () => {
+  const baseLog: Omit<ActivityLog, 'id' | 'action' | 'timestamp'> = {
+    eventId: 'evt_1',
+    participantName: 'علي محمد إبراهيم',
+    barcode: 'RUN-1042',
+    itemId: 'tshirt',
+    itemName: 'التيشيرت',
+    organizerId: 'org_1',
+    organizerName: 'أحمد حسن',
+  };
+
+  // 1. تسليم مكرر (حالة تعارض)
+  const duplicateLogs: ActivityLog[] = [
+    {
+      ...baseLog,
+      id: 'log_1',
+      action: 'delivered',
+      timestamp: '2026-11-20T10:15:00Z',
+      clientDeliveredAt: '2026-11-20T10:00:00Z',
+      viaOffline: true,
+      deviceId: 'dev_111',
+    },
+    {
+      ...baseLog,
+      id: 'log_2',
+      organizerId: 'org_2',
+      organizerName: 'سارة محمود',
+      action: 'delivered',
+      timestamp: '2026-11-20T10:16:00Z',
+      clientDeliveredAt: '2026-11-20T10:01:00Z',
+      viaOffline: true,
+      deviceId: 'dev_222',
+    },
+  ];
+  const dupConflicts = detectDeliveryConflicts(duplicateLogs, [sampleOrganizer]);
+  assert.equal(dupConflicts.length, 1);
+  assert.equal(dupConflicts[0].barcode, 'RUN-1042');
+  assert.equal(dupConflicts[0].itemId, 'tshirt');
+  assert.equal(dupConflicts[0].deliveries.length, 2);
+  assert.equal(dupConflicts[0].deliveries[0].boothName, 'بوث A - تيشيرتات');
+  assert.equal(dupConflicts[0].deliveries[0].viaOffline, true);
+  assert.equal(dupConflicts[0].deliveries[1].deviceId, 'dev_222');
+
+  // 2. تسليم ثم إلغاء ثم تسليم (مش تعارض)
+  const undoneThenDeliveredLogs: ActivityLog[] = [
+    {
+      ...baseLog,
+      id: 'log_u1',
+      action: 'delivered',
+      timestamp: '2026-11-20T09:00:00Z',
+      clientDeliveredAt: '2026-11-20T09:00:00Z',
+    },
+    {
+      ...baseLog,
+      id: 'log_u2',
+      organizerId: 'admin',
+      organizerName: 'مدير السباق',
+      action: 'undone',
+      timestamp: '2026-11-20T09:05:00Z',
+    },
+    {
+      ...baseLog,
+      id: 'log_u3',
+      organizerId: 'org_2',
+      organizerName: 'سارة محمود',
+      action: 'delivered',
+      timestamp: '2026-11-20T09:10:00Z',
+      clientDeliveredAt: '2026-11-20T09:10:00Z',
+    },
+  ];
+  assert.equal(detectDeliveryConflicts(undoneThenDeliveredLogs).length, 0);
+
+  // 3. ثلاث تسليمات لنفس المتسابق والعنصر (مرتبة حسب clientDeliveredAt مع fallback على timestamp)
+  const tripleLogs: ActivityLog[] = [
+    {
+      ...baseLog,
+      id: 'log_t3',
+      organizerId: 'org_3',
+      organizerName: 'محمود عادل',
+      action: 'delivered',
+      timestamp: '2026-11-20T12:00:00Z',
+      clientDeliveredAt: '2026-11-20T10:30:00Z',
+      viaOffline: true,
+      deviceId: 'dev_333',
+    },
+    {
+      ...baseLog,
+      id: 'log_t1',
+      action: 'delivered',
+      timestamp: '2026-11-20T10:05:00Z',
+      viaOffline: false,
+      deviceId: 'dev_111',
+    },
+    {
+      ...baseLog,
+      id: 'log_t2',
+      organizerId: 'org_2',
+      organizerName: 'سارة محمود',
+      action: 'delivered',
+      timestamp: '2026-11-20T11:00:00Z',
+      clientDeliveredAt: '2026-11-20T10:15:00Z',
+      viaOffline: true,
+      deviceId: 'dev_222',
+    },
+  ];
+  const tripleConflicts = detectDeliveryConflicts(tripleLogs);
+  assert.equal(tripleConflicts.length, 1);
+  assert.equal(tripleConflicts[0].deliveries.length, 3);
+  assert.equal(tripleConflicts[0].deliveries[0].organizerId, 'org_1');
+  assert.equal(tripleConflicts[0].deliveries[1].organizerId, 'org_2');
+  assert.equal(tripleConflicts[0].deliveries[2].organizerId, 'org_3');
 });
 
 

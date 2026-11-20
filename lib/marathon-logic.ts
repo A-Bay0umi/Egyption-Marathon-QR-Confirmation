@@ -1,7 +1,9 @@
 import type {
   ActivityLog,
   ColumnMapping,
+  ConflictDeliveryEntry,
   DeliverableItem,
+  DeliveryConflict,
   DeliveryRecord,
   ItemProgressStat,
   MarathonEvent,
@@ -213,8 +215,22 @@ export function attemptLocalDelivery(params: {
   nameField?: string;
   allItems?: DeliverableItem[];
   nowIso?: string;
+  viaOffline?: boolean;
+  clientDeliveredAt?: string;
+  deviceId?: string;
 }): DeliveryAttemptResult {
-  const { eventId, participant, organizer, item, displayFields, nameField, allItems } = params;
+  const {
+    eventId,
+    participant,
+    organizer,
+    item,
+    displayFields,
+    nameField,
+    allItems,
+    viaOffline,
+    clientDeliveredAt,
+    deviceId,
+  } = params;
   const nowIso = params.nowIso ?? new Date().toISOString();
 
   if (!organizer.isActive) {
@@ -278,6 +294,9 @@ export function attemptLocalDelivery(params: {
     organizerName: organizer.name,
     action: 'delivered',
     timestamp: nowIso,
+    viaOffline: Boolean(viaOffline),
+    clientDeliveredAt: clientDeliveredAt ?? nowIso,
+    ...(deviceId ? { deviceId } : {}),
   };
 
   return {
@@ -323,6 +342,100 @@ export function adminUndoDelivery(params: {
   };
 
   return { updatedParticipant, logEntry };
+}
+
+function getEffectiveLogTimeMs(log: ActivityLog): number {
+  const raw = log.clientDeliveredAt || log.timestamp;
+  const ms = Date.parse(raw);
+  if (!Number.isNaN(ms)) return ms;
+  const fallbackMs = Date.parse(log.timestamp);
+  return Number.isNaN(fallbackMs) ? 0 : fallbackMs;
+}
+
+export function detectDeliveryConflicts(
+  logs: ActivityLog[],
+  organizers?: Organizer[]
+): DeliveryConflict[] {
+  const boothByOrgId = new Map<string, string>();
+  if (organizers) {
+    for (const org of organizers) {
+      if (org.boothName) {
+        boothByOrgId.set(org.id, org.boothName);
+      }
+    }
+  }
+
+  const groups = new Map<string, ActivityLog[]>();
+  for (const log of logs) {
+    const itemKey = log.itemId || log.itemName;
+    if (!log.barcode || !itemKey) continue;
+    const key = `${log.barcode}__${itemKey}`;
+    const bucket = groups.get(key);
+    if (bucket) {
+      bucket.push(log);
+    } else {
+      groups.set(key, [log]);
+    }
+  }
+
+  const conflicts: DeliveryConflict[] = [];
+
+  for (const [conflictKey, groupLogs] of groups.entries()) {
+    const sorted = [...groupLogs].sort((a, b) => {
+      const diff = getEffectiveLogTimeMs(a) - getEffectiveLogTimeMs(b);
+      if (diff !== 0) return diff;
+      const serverDiff = (Date.parse(a.timestamp) || 0) - (Date.parse(b.timestamp) || 0);
+      if (serverDiff !== 0) return serverDiff;
+      return a.id.localeCompare(b.id);
+    });
+
+    let state: 'none' | 'delivered' = 'none';
+    let currentDeliveries: ActivityLog[] = [];
+    let hasConflict = false;
+
+    for (const entry of sorted) {
+      if (entry.action === 'delivered') {
+        if (state === 'delivered') {
+          hasConflict = true;
+        }
+        state = 'delivered';
+        currentDeliveries.push(entry);
+      } else if (entry.action === 'undone') {
+        state = 'none';
+        currentDeliveries = [];
+        hasConflict = false;
+      }
+    }
+
+    if (hasConflict && currentDeliveries.length >= 2) {
+      const latestLog = currentDeliveries[currentDeliveries.length - 1];
+      const deliveries: ConflictDeliveryEntry[] = currentDeliveries.map((d) => ({
+        logId: d.id,
+        organizerId: d.organizerId,
+        organizerName: d.organizerName,
+        boothName: boothByOrgId.get(d.organizerId) || undefined,
+        timestamp: d.clientDeliveredAt || d.timestamp,
+        clientDeliveredAt: d.clientDeliveredAt,
+        viaOffline: Boolean(d.viaOffline),
+        deviceId: d.deviceId,
+      }));
+
+      conflicts.push({
+        conflictKey,
+        barcode: latestLog.barcode,
+        participantName: latestLog.participantName || latestLog.barcode,
+        itemId: latestLog.itemId || latestLog.itemName,
+        itemName: latestLog.itemName,
+        deliveries,
+      });
+    }
+  }
+
+  return conflicts.sort((a, b) => {
+    const aLast = Date.parse(a.deliveries[a.deliveries.length - 1]?.timestamp ?? '') || 0;
+    const bLast = Date.parse(b.deliveries[b.deliveries.length - 1]?.timestamp ?? '') || 0;
+    return bLast - aLast;
+  });
 }
 
 export function computeEventStats(

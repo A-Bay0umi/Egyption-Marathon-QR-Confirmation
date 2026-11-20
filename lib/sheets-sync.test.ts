@@ -2,13 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildAppsScriptPayload,
+  buildDefaultSheetsColumns,
   computeEventSheetsSnapshot,
   computeParticipantDeliveriesFingerprint,
   formatDeliveryTime12hEn,
   generateGoogleAppsScriptCode,
+  getEffectiveSheetsColumns,
   isValidAppsScriptUrl,
 } from './sheets-sync';
-import type { MarathonEvent, Organizer, Participant } from './types';
+import type { MarathonEvent, Organizer, Participant, SheetsColumnMapping } from './types';
 
 test('formatDeliveryTime12hEn formats Africa/Cairo time with seconds in 12-hour English digits', () => {
   // 2026-11-20T12:05:33Z = 14:05:33 Cairo = 02:05:33 PM
@@ -32,7 +34,13 @@ test('isValidAppsScriptUrl only allows HTTPS script.google.com endpoints', () =>
 test('buildAppsScriptPayload prepares item delivery status, 12h English time, and organizer booth label', () => {
   const event: Pick<
     MarathonEvent,
-    'id' | 'name' | 'deliverableItems' | 'displayFields' | 'nameField' | 'sheetsWebhookSecret'
+    | 'id'
+    | 'name'
+    | 'deliverableItems'
+    | 'displayFields'
+    | 'nameField'
+    | 'sheetsWebhookSecret'
+    | 'sheetsColumns'
   > = {
     id: 'evt_1',
     name: 'ماراثون القاهرة',
@@ -108,37 +116,67 @@ test('buildAppsScriptPayload prepares item delivery status, 12h English time, an
       },
     ],
   });
-  assert.notEqual(snap1, snap2);
-});
-
-test('buildAppsScriptPayload extracts dynamicColumns without duplicating Tkt Number or Name', () => {
-  const payload = buildAppsScriptPayload({
+  const snap3 = computeEventSheetsSnapshot({
     event: {
-      id: 'evt_2',
-      name: 'Cairo Run',
-      deliverableItems: [{ id: 'kit', name: 'Race Kit' }],
-      displayFields: ['Tkt Number', 'Name', 'Distance', 'Size'],
-      nameField: 'Name',
+      ...event,
+      sheetsColumns: [{ id: 'c1', header: 'Ticket', sourceType: 'barcode' }],
     },
-    organizers: [],
-    participants: [],
-    mode: 'full',
+    organizers,
+    participants,
   });
-  assert.deepEqual(payload.dynamicColumns, ['Distance', 'Size']);
+  assert.notEqual(snap1, snap2);
+  assert.notEqual(snap1, snap3);
 });
 
-test('generateGoogleAppsScriptCode embeds secret, English headers, full reset, and orange/centered formatting', () => {
-  const code = generateGoogleAppsScriptCode("my'secret");
+test('buildDefaultSheetsColumns and getEffectiveSheetsColumns resolve custom vs default column mappings', () => {
+  const baseEvent = {
+    deliverableItems: [{ id: 'kit', name: 'Race Kit' }],
+    displayFields: ['Tkt Number', 'Name', 'Distance', 'Size'],
+    nameField: 'Name',
+  };
+
+  const defaults = buildDefaultSheetsColumns(baseEvent);
+  assert.deepEqual(
+    defaults.map((c) => c.header),
+    [
+      'Tkt Number',
+      'Name',
+      'Distance',
+      'Size',
+      'Race Kit - Status',
+      'Race Kit - Delivery Time',
+      'Race Kit - Organizer',
+    ]
+  );
+
+  const customCols: SheetsColumnMapping[] = [
+    { id: 'c1', header: 'TKT', sourceType: 'barcode' },
+    { id: 'c2', header: 'Runner', sourceType: 'participant_name' },
+    { id: 'c3', header: 'Size', sourceType: 'dynamic_field', fieldKey: 'Size' },
+    { id: 'c4', header: 'Kit State', sourceType: 'item_status', itemId: 'kit' },
+  ];
+  assert.deepEqual(
+    getEffectiveSheetsColumns({ ...baseEvent, sheetsColumns: customCols }),
+    customCols
+  );
+});
+
+test('generateGoogleAppsScriptCode embeds custom SHEET_COLUMNS, full reset, and orange/centered formatting', () => {
+  const customCols: SheetsColumnMapping[] = [
+    { id: 'c1', header: 'Ticket No', sourceType: 'barcode' },
+    { id: 'c2', header: 'Shirt Size', sourceType: 'dynamic_field', fieldKey: 'Size' },
+    { id: 'c3', header: 'Booth', sourceType: 'item_booth', itemId: 'kit' },
+  ];
+  const code = generateGoogleAppsScriptCode("my'secret", customCols);
   assert.equal(code.includes("const SECRET = 'my\\'secret';"), true);
   assert.equal(code.includes('LockService.getScriptLock()'), true);
-  assert.equal(code.includes('function doPost(e)'), true);
+  assert.equal(code.includes('function resolveColumnValue(col, entry)'), true);
+  assert.equal(code.includes('"header": "Ticket No"'), true);
+  assert.equal(code.includes('"fieldKey": "Size"'), true);
+  assert.equal(code.includes('"sourceType": "item_booth"'), true);
   assert.equal(code.includes("const isReset = data.mode === 'full';"), true);
   assert.equal(code.includes('sheet.clearContents();'), true);
   assert.equal(code.includes('sheet.clearFormats();'), true);
-  assert.equal(code.includes("headers = ['Tkt Number', 'Name'];"), true);
-  assert.equal(code.includes("item.name + ' - Status'"), true);
-  assert.equal(code.includes("item.name + ' - Delivery Time'"), true);
-  assert.equal(code.includes("item.name + ' - Organizer'"), true);
   assert.equal(code.includes(".setFontColor('#000000')"), true);
   assert.equal(code.includes(".setFontWeight('bold')"), true);
   assert.equal(code.includes(".setBackground('#FF9800')"), true);

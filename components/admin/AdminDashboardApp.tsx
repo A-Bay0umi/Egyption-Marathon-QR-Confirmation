@@ -24,6 +24,7 @@ import { AdminAuthGate } from './AdminAuthGate';
 import { EventDayReportTab } from './EventDayReportTab';
 import { EventParticipantsTab } from './EventParticipantsTab';
 import { EventSettingsOrganizersTab } from './EventSettingsOrganizersTab';
+import { EventSheetsDesignerTab } from './EventSheetsDesignerTab';
 import { EventTasksMonitorTab } from './EventTasksMonitorTab';
 import { BrandLogo } from '@/components/BrandLogo';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
@@ -55,7 +56,7 @@ import type {
   Participant,
 } from '@/lib/types';
 
-type EventTab = 'tasks' | 'report' | 'settings' | 'people';
+type EventTab = 'tasks' | 'report' | 'sheets' | 'settings' | 'people';
 
 const THEME_STORAGE_KEY = 'marathon_high_contrast_dark';
 
@@ -151,6 +152,21 @@ export const AdminDashboardApp: React.FC = () => {
     () => events.find((e) => e.id === selectedEventId) ?? null,
     [events, selectedEventId]
   );
+
+  const availableParticipantFields = useMemo(() => {
+    const set = new Set<string>();
+    if (selectedEvent) {
+      if (selectedEvent.nameField) set.add(selectedEvent.nameField);
+      for (const f of selectedEvent.displayFields) set.add(f);
+      for (const f of selectedEvent.searchFields) set.add(f);
+    }
+    for (const p of eventParticipants.slice(0, 25)) {
+      for (const k of Object.keys(p.dynamicData ?? {})) {
+        if (k.trim()) set.add(k.trim());
+      }
+    }
+    return Array.from(set);
+  }, [selectedEvent, eventParticipants]);
 
   // Subscribe to isolated participants, organizers, and logs for the opened event
   useEffect(() => {
@@ -290,9 +306,9 @@ export const AdminDashboardApp: React.FC = () => {
   const handleManualSyncSheets = useCallback(async () => {
     if (!selectedEvent) return;
     if (!selectedEvent.sheetsWebhookUrl) {
-      setActiveTab('settings');
+      setActiveTab('sheets');
       setSheetsSyncStatus('error');
-      setSheetsSyncMessage('أضف رابط Google Apps Script من الإعدادات أولاً');
+      setSheetsSyncMessage('أضف رابط Google Apps Script من تاب "تصميم الشيت" أولاً');
       return;
     }
     if (sheetsSyncInFlightRef.current) return;
@@ -643,6 +659,7 @@ export const AdminDashboardApp: React.FC = () => {
                   [
                     { id: 'tasks', label: 'المهام والتسليم', icon: ClipboardList },
                     { id: 'report', label: 'التقرير', icon: BarChart3 },
+                    { id: 'sheets', label: 'تصميم الشيت', icon: FileSpreadsheet },
                     { id: 'settings', label: 'إعدادات المهام والمنظمين', icon: Settings2 },
                     { id: 'people', label: 'الأشخاص', icon: Users },
                   ] as const
@@ -745,15 +762,25 @@ export const AdminDashboardApp: React.FC = () => {
               />
             )}
 
+            {activeTab === 'sheets' && (
+              <EventSheetsDesignerTab
+                key={selectedEvent.id}
+                event={selectedEvent}
+                organizers={eventOrganizers}
+                participants={eventParticipants}
+                availableParticipantFields={availableParticipantFields}
+                onManualSyncSheets={handleManualSyncSheets}
+                sheetsSyncStatus={sheetsSyncStatus}
+                sheetsSyncMessage={sheetsSyncMessage}
+                sheetsLastSyncedAt={sheetsLastSyncedAt}
+              />
+            )}
+
             {activeTab === 'settings' && (
               <EventSettingsOrganizersTab
                 key={selectedEvent.id}
                 event={selectedEvent}
                 organizers={eventOrganizers}
-                onManualSyncSheets={handleManualSyncSheets}
-                sheetsSyncStatus={sheetsSyncStatus}
-                sheetsSyncMessage={sheetsSyncMessage}
-                sheetsLastSyncedAt={sheetsLastSyncedAt}
               />
             )}
 

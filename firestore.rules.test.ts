@@ -19,4 +19,5 @@ test('firestore.rules enforces default deny and eight pillars', () => {
   assert.match(rules, /data\.note\.size\(\) <= 500/);
   assert.match(rules, /sheetsWebhookUrl/);
   assert.match(rules, /sheetsAutoSync/);
+  assert.match(rules, /sheetsColumns/);
 });

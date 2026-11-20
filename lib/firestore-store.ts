@@ -39,6 +39,7 @@ import type {
   MarathonEvent,
   Organizer,
   Participant,
+  SheetsColumnMapping,
 } from './types';
 
 const DEVICE_ID_STORAGE_KEY = 'emqr_device_id_v1';
@@ -100,6 +101,9 @@ function mapEventDoc(id: string, data: Record<string, unknown>): MarathonEvent {
         ? data.sheetsWebhookSecret
         : undefined,
     sheetsAutoSync: typeof data.sheetsAutoSync === 'boolean' ? data.sheetsAutoSync : undefined,
+    sheetsColumns: Array.isArray(data.sheetsColumns)
+      ? (data.sheetsColumns as SheetsColumnMapping[])
+      : undefined,
     deliverableItems: Array.isArray(data.deliverableItems)
       ? (data.deliverableItems as DeliverableItem[])
       : [],
@@ -537,6 +541,7 @@ export async function updateEventDoc(
       | 'sheetsWebhookUrl'
       | 'sheetsWebhookSecret'
       | 'sheetsAutoSync'
+      | 'sheetsColumns'
     >
   >
 ): Promise<void> {
@@ -546,6 +551,25 @@ export async function updateEventDoc(
     cleanPatch.deliverableItems = sanitizeDeliverableItems(
       cleanPatch.deliverableItems as DeliverableItem[]
     );
+  }
+  if ('sheetsColumns' in patch) {
+    if (Array.isArray(patch.sheetsColumns) && patch.sheetsColumns.length > 0) {
+      cleanPatch.sheetsColumns = patch.sheetsColumns.slice(0, 40).map((col) => {
+        const cleanCol: Record<string, string> = {
+          id: col.id,
+          header: col.header.trim(),
+          sourceType: col.sourceType,
+        };
+        if (col.fieldKey?.trim()) cleanCol.fieldKey = col.fieldKey.trim();
+        if (col.itemId?.trim()) cleanCol.itemId = col.itemId.trim();
+        if (col.staticValue !== undefined && col.staticValue !== '') {
+          cleanCol.staticValue = col.staticValue;
+        }
+        return cleanCol;
+      });
+    } else {
+      cleanPatch.sheetsColumns = deleteField();
+    }
   }
   if ('nameField' in patch) {
     cleanPatch.nameField = patch.nameField?.trim() ? patch.nameField.trim() : deleteField();

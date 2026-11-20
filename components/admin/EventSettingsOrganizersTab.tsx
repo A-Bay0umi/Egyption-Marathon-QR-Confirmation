@@ -6,11 +6,8 @@ import {
   ArrowUp,
   CalendarClock,
   Check,
-  ChevronDown,
-  ChevronUp,
   Copy,
   Edit3,
-  FileSpreadsheet,
   Link2,
   ListChecks,
   Lock,
@@ -18,7 +15,6 @@ import {
   MessageSquareText,
   Phone,
   Plus,
-  RefreshCw,
   ShieldAlert,
   ShieldCheck,
   Trash2,
@@ -46,25 +42,20 @@ import {
   toDateTimeLocalValue,
   wouldCreateDependencyCycle,
 } from '@/lib/marathon-logic';
-import { generateGoogleAppsScriptCode, isValidAppsScriptUrl } from '@/lib/sheets-sync';
-import type { DeliverableItem, MarathonEvent, Organizer } from '@/lib/types';
+import type {
+  DeliverableItem,
+  MarathonEvent,
+  Organizer,
+} from '@/lib/types';
 
 interface EventSettingsOrganizersTabProps {
   event: MarathonEvent;
   organizers: Organizer[];
-  onManualSyncSheets?: () => Promise<void>;
-  sheetsSyncStatus?: 'idle' | 'syncing' | 'success' | 'error';
-  sheetsSyncMessage?: string | null;
-  sheetsLastSyncedAt?: string | null;
 }
 
 export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProps> = ({
   event,
   organizers,
-  onManualSyncSheets,
-  sheetsSyncStatus = 'idle',
-  sheetsSyncMessage = null,
-  sheetsLastSyncedAt = null,
 }) => {
   // Registration open/close schedule state
   const [regStatus, setRegStatus] = useState<'auto' | 'open' | 'closed'>(
@@ -100,16 +91,6 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
   // Clipboard feedback
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
-
-  // Google Apps Script Auto-Sync state
-  const [webhookUrl, setWebhookUrl] = useState(event.sheetsWebhookUrl ?? '');
-  const [webhookSecret, setWebhookSecret] = useState(event.sheetsWebhookSecret ?? '');
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(event.sheetsAutoSync !== false);
-  const [savingWebhook, setSavingWebhook] = useState(false);
-  const [webhookSavedMsg, setWebhookSavedMsg] = useState<string | null>(null);
-  const [webhookErrorMsg, setWebhookErrorMsg] = useState<string | null>(null);
-  const [showScriptCode, setShowScriptCode] = useState(false);
-  const [copiedScript, setCopiedScript] = useState(false);
 
   const liveRegState = getEventRegistrationState({
     isActive: event.isActive,
@@ -153,47 +134,6 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
     setOpensAtLocal('');
     setClosesAtLocal('');
     await persistSchedule('auto', '', '');
-  };
-
-  const handleSaveWebhookSettings = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedUrl = webhookUrl.trim();
-    setWebhookSavedMsg(null);
-    setWebhookErrorMsg(null);
-
-    if (trimmedUrl && !isValidAppsScriptUrl(trimmedUrl)) {
-      setWebhookErrorMsg(
-        'الرابط غير صالح. يجب أن يبدأ بـ https://script.google.com/ وينتهي بـ /exec'
-      );
-      return;
-    }
-
-    setSavingWebhook(true);
-    try {
-      await updateEventDoc(event.id, {
-        sheetsWebhookUrl: trimmedUrl,
-        sheetsWebhookSecret: webhookSecret.trim(),
-        sheetsAutoSync: autoSyncEnabled,
-      });
-      setWebhookSavedMsg(
-        trimmedUrl ? 'تم حفظ رابط المزامنة التلقائية بنجاح' : 'تم إلغاء ربط Google Sheet'
-      );
-      setTimeout(() => setWebhookSavedMsg(null), 3000);
-    } catch {
-      setWebhookErrorMsg('تعذر حفظ إعدادات Google Apps Script على Firebase.');
-    } finally {
-      setSavingWebhook(false);
-    }
-  };
-
-  const handleCopyAppsScriptCode = async () => {
-    try {
-      await navigator.clipboard.writeText(generateGoogleAppsScriptCode(webhookSecret.trim()));
-      setCopiedScript(true);
-      setTimeout(() => setCopiedScript(false), 2500);
-    } catch {
-      // Ignore clipboard permission errors
-    }
   };
 
   const handleAddTask = async (e: React.FormEvent) => {
@@ -470,158 +410,6 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
             )}
           </div>
         </form>
-      </section>
-
-      {/* Section 0.5: Google Apps Script Auto-Sync Settings */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                المزامنة التلقائية مع Google Sheet (Apps Script)
-              </h2>
-              <p className="text-xs text-slate-500 dark:text-neutral-400">
-                تحديث تلقائي لصفوف المتسابقين بالحالة ووقت التسليم بالثانية (نظام 12 ساعة إنجليزي) واسم المنظم فور التسليم.
-              </p>
-            </div>
-          </div>
-
-          {event.sheetsWebhookUrl && (
-            <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-3 py-1.5 text-xs font-bold text-emerald-800 dark:text-emerald-300">
-              <Check className="w-3.5 h-3.5" />
-              <span>{event.sheetsAutoSync !== false ? 'مربوط ومفعّل تلقائياً' : 'مربوط (مزامنة يدوية فقط)'}</span>
-            </span>
-          )}
-        </div>
-
-        <form onSubmit={(e) => void handleSaveWebhookSettings(e)} className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="sheets-webhook-url"
-                className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
-              >
-                رابط Web App من Google Apps Script
-              </label>
-              <input
-                id="sheets-webhook-url"
-                data-testid="sheets-webhook-url-input"
-                type="url"
-                dir="ltr"
-                value={webhookUrl}
-                onChange={(e) => {
-                  setWebhookUrl(e.target.value);
-                  setWebhookErrorMsg(null);
-                }}
-                placeholder="https://script.google.com/macros/s/.../exec"
-                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
-              />
-            </div>
-
-
-          </div>
-
-          <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-neutral-300 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoSyncEnabled}
-              onChange={(e) => setAutoSyncEnabled(e.target.checked)}
-              className="w-4 h-4 accent-emerald-600 rounded"
-            />
-            <span>تفعيل المزامنة التلقائية مع الشيت عند التسليم أو عند رجوع الأوفلاين</span>
-          </label>
-
-          {webhookErrorMsg && (
-            <p className="text-xs font-bold text-red-600 dark:text-red-400">{webhookErrorMsg}</p>
-          )}
-          {webhookSavedMsg && (
-            <p className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-              {webhookSavedMsg}
-            </p>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="submit"
-              disabled={savingWebhook}
-              data-testid="save-sheets-webhook-btn"
-              className="rounded-xl bg-slate-900 dark:bg-white text-white dark:text-black px-4 py-2.5 text-xs font-bold min-h-[42px] disabled:opacity-50"
-            >
-              {savingWebhook ? 'جاري الحفظ...' : 'حفظ إعدادات الشيت'}
-            </button>
-
-            {event.sheetsWebhookUrl && onManualSyncSheets && (
-              <button
-                type="button"
-                disabled={sheetsSyncStatus === 'syncing'}
-                onClick={() => void onManualSyncSheets()}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-xs font-bold min-h-[42px] disabled:opacity-50"
-              >
-                <RefreshCw
-                  className={`w-4 h-4 ${sheetsSyncStatus === 'syncing' ? 'animate-spin' : ''}`}
-                />
-                <span>
-                  {sheetsSyncStatus === 'syncing' ? 'جاري المزامنة...' : 'مزامنة الشيت الآن'}
-                </span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setShowScriptCode((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-900 px-3.5 py-2.5 text-xs font-bold text-slate-700 dark:text-neutral-200 min-h-[42px]"
-            >
-              {showScriptCode ? (
-                <ChevronUp className="w-4 h-4" />
-              ) : (
-                <ChevronDown className="w-4 h-4" />
-              )}
-              <span>كود Google Apps Script وخطوات التفعيل</span>
-            </button>
-          </div>
-
-          {(sheetsSyncMessage || sheetsLastSyncedAt) && (
-            <div
-              className={`text-xs font-semibold ${
-                sheetsSyncStatus === 'error'
-                  ? 'text-red-600 dark:text-red-400'
-                  : 'text-emerald-700 dark:text-emerald-400'
-              }`}
-            >
-              {sheetsSyncMessage}
-              {sheetsLastSyncedAt && (
-                <span className="mr-2 font-ascii-mono text-slate-500 dark:text-neutral-400" dir="ltr">
-                  ({sheetsLastSyncedAt})
-                </span>
-              )}
-            </div>
-          )}
-        </form>
-
-        {showScriptCode && (
-          <div className="rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-bold text-slate-800 dark:text-neutral-200">
-                1. افتح الشيت ← Extensions ← Apps Script · 2. الصق الكود واحفظه · 3. Deploy ← New deployment ← Web app (Who has access: Anyone) وانسخ رابط /exec فوق.
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleCopyAppsScriptCode()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-xs font-bold shrink-0"
-              >
-                {copiedScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedScript ? 'تم نسخ الكود' : 'نسخ الكود'}</span>
-              </button>
-            </div>
-            <pre
-              dir="ltr"
-              className="max-h-64 overflow-auto rounded-lg border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-3 text-[11px] font-ascii-mono text-slate-800 dark:text-neutral-200 leading-relaxed"
-            >
-              {generateGoogleAppsScriptCode(webhookSecret.trim())}
-            </pre>
-          </div>
-        )}
       </section>
 
       {/* Section 1: Tasks / Deliverable Items Settings */}

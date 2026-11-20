@@ -11,6 +11,26 @@ export interface DeliveryRecord {
   deliveredAt: string;
 }
 
+export type SheetsColumnSourceType =
+  | 'barcode'
+  | 'participant_name'
+  | 'dynamic_field'
+  | 'item_status'
+  | 'item_time'
+  | 'item_organizer'
+  | 'item_organizer_name'
+  | 'item_booth'
+  | 'static_text';
+
+export interface SheetsColumnMapping {
+  id: string;
+  header: string;
+  sourceType: SheetsColumnSourceType;
+  fieldKey?: string;
+  itemId?: string;
+  staticValue?: string;
+}
+
 export interface MarathonEvent {
   id: string;
   name: string;
@@ -22,6 +42,7 @@ export interface MarathonEvent {
   sheetsWebhookUrl?: string;
   sheetsWebhookSecret?: string;
   sheetsAutoSync?: boolean;
+  sheetsColumns?: SheetsColumnMapping[];
   deliverableItems: DeliverableItem[];
   displayFields: string[];
   displayLabels?: Record<string, string>;

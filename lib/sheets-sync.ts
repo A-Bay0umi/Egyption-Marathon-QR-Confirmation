@@ -1,5 +1,5 @@
 import { extractParticipantDisplayName, normalizeBarcode } from './marathon-logic';
-import type { MarathonEvent, Organizer, Participant } from './types';
+import type { MarathonEvent, Organizer, Participant, SheetsColumnMapping } from './types';
 
 export const CAIRO_TIMEZONE = 'Africa/Cairo';
 const SHEETS_SYNC_FINGERPRINT_PREFIX = 'emqr_sheets_sync_fp_v1_';
@@ -62,10 +62,89 @@ export interface AppsScriptSyncPayload {
   eventId: string;
   eventName: string;
   mode: 'upsert' | 'full';
+  columns: SheetsColumnMapping[];
   dynamicColumns: string[];
   items: Array<{ id: string; name: string }>;
   rows: AppsScriptParticipantRow[];
   sentAt12h: string;
+}
+
+export function isBarcodeOrNameFieldHeader(col: string, nameField?: string): boolean {
+  const trimmed = col.trim();
+  if (!trimmed) return true;
+  if (nameField && trimmed === nameField.trim()) return true;
+  return (
+    /^(tkt|ticket|barcode|باركود|كود|qr)(\s*(number|no|code|id))?$/i.test(trimmed) ||
+    /^(full\s*)?(name|الاسم|اسم)$/i.test(trimmed)
+  );
+}
+
+export function buildDefaultSheetsColumns(
+  event: Pick<MarathonEvent, 'deliverableItems' | 'displayFields' | 'nameField'>,
+  extraDynamicFields: string[] = []
+): SheetsColumnMapping[] {
+  const cols: SheetsColumnMapping[] = [
+    { id: 'col_barcode', header: 'Tkt Number', sourceType: 'barcode' },
+    { id: 'col_name', header: 'Name', sourceType: 'participant_name' },
+  ];
+
+  const candidateFields =
+    event.displayFields.length > 0 ? event.displayFields : extraDynamicFields;
+  const seenFields = new Set<string>();
+  let dynIdx = 0;
+
+  for (const raw of candidateFields) {
+    const clean = raw.trim();
+    if (!clean || seenFields.has(clean) || isBarcodeOrNameFieldHeader(clean, event.nameField)) {
+      continue;
+    }
+    seenFields.add(clean);
+    dynIdx += 1;
+    cols.push({
+      id: `col_dyn_${dynIdx}`,
+      header: clean,
+      sourceType: 'dynamic_field',
+      fieldKey: clean,
+    });
+  }
+
+  for (const item of event.deliverableItems) {
+    cols.push(
+      {
+        id: `col_status_${item.id}`,
+        header: `${item.name} - Status`,
+        sourceType: 'item_status',
+        itemId: item.id,
+      },
+      {
+        id: `col_time_${item.id}`,
+        header: `${item.name} - Delivery Time`,
+        sourceType: 'item_time',
+        itemId: item.id,
+      },
+      {
+        id: `col_org_${item.id}`,
+        header: `${item.name} - Organizer`,
+        sourceType: 'item_organizer',
+        itemId: item.id,
+      }
+    );
+  }
+
+  return cols;
+}
+
+export function getEffectiveSheetsColumns(
+  event: Pick<
+    MarathonEvent,
+    'deliverableItems' | 'displayFields' | 'nameField' | 'sheetsColumns'
+  >,
+  extraDynamicFields: string[] = []
+): SheetsColumnMapping[] {
+  if (Array.isArray(event.sheetsColumns) && event.sheetsColumns.length > 0) {
+    return event.sheetsColumns;
+  }
+  return buildDefaultSheetsColumns(event, extraDynamicFields);
 }
 
 export function isValidAppsScriptUrl(url?: string): boolean {
@@ -119,7 +198,7 @@ export function saveSyncedFingerprints(
 export function computeEventSheetsSnapshot(params: {
   event: Pick<
     MarathonEvent,
-    'id' | 'name' | 'deliverableItems' | 'displayFields' | 'nameField'
+    'id' | 'name' | 'deliverableItems' | 'displayFields' | 'nameField' | 'sheetsColumns'
   >;
   organizers: Organizer[];
   participants: Participant[];
@@ -127,6 +206,12 @@ export function computeEventSheetsSnapshot(params: {
   const { event, organizers, participants } = params;
   const itemsPart = event.deliverableItems.map((i) => `${i.id}:${i.name}`).join(',');
   const fieldsPart = `${event.nameField ?? ''}|${event.displayFields.join(',')}`;
+  const colsPart = (event.sheetsColumns ?? [])
+    .map(
+      (c) =>
+        `${c.id}:${c.header}:${c.sourceType}:${c.fieldKey ?? ''}:${c.itemId ?? ''}:${c.staticValue ?? ''}`
+    )
+    .join('|');
   const orgsPart = [...organizers]
     .sort((a, b) => a.id.localeCompare(b.id))
     .map((o) => `${o.id}:${o.name}:${o.boothName ?? ''}`)
@@ -142,7 +227,7 @@ export function computeEventSheetsSnapshot(params: {
     })
     .join('\n');
 
-  return `${event.id}#${event.name}#${fieldsPart}#${itemsPart}#${orgsPart}#${participantsPart}`;
+  return `${event.id}#${event.name}#${fieldsPart}#${colsPart}#${itemsPart}#${orgsPart}#${participantsPart}`;
 }
 
 export function loadSyncedSnapshot(eventId: string): string | null {
@@ -172,6 +257,7 @@ export function buildAppsScriptPayload(params: {
     | 'displayFields'
     | 'nameField'
     | 'sheetsWebhookSecret'
+    | 'sheetsColumns'
   >;
   organizers: Organizer[];
   participants: Participant[];
@@ -225,30 +311,22 @@ export function buildAppsScriptPayload(params: {
     };
   });
 
-  const candidateKeys =
-    event.displayFields.length > 0
-      ? event.displayFields
-      : Object.keys(participants[0]?.dynamicData ?? {});
-
-  const isBarcodeOrNameHeader = (col: string): boolean => {
-    const trimmed = col.trim();
-    if (!trimmed) return true;
-    if (event.nameField && trimmed === event.nameField.trim()) return true;
-    return (
-      /^(tkt|ticket|barcode|باركود|كود|qr)(\s*(number|no|code|id))?$/i.test(trimmed) ||
-      /^(full\s*)?(name|الاسم|اسم)$/i.test(trimmed)
-    );
-  };
-
+  const extraFields = Object.keys(participants[0]?.dynamicData ?? {});
   const dynamicColumns = Array.from(
-    new Set(candidateKeys.map((k) => k.trim()).filter((k) => !isBarcodeOrNameHeader(k)))
+    new Set(
+      (event.displayFields.length > 0 ? event.displayFields : extraFields)
+        .map((k) => k.trim())
+        .filter((k) => !isBarcodeOrNameFieldHeader(k, event.nameField))
+    )
   );
+  const columns = getEffectiveSheetsColumns(event, extraFields);
 
   return {
     ...(event.sheetsWebhookSecret ? { secret: event.sheetsWebhookSecret } : {}),
     eventId: event.id,
     eventName: event.name,
     mode,
+    columns,
     dynamicColumns,
     items: event.deliverableItems.map((i) => ({ id: i.id, name: i.name })),
     rows,
@@ -273,6 +351,7 @@ export async function postAppsScriptWebhookChunks(params: {
     | 'displayFields'
     | 'nameField'
     | 'sheetsWebhookSecret'
+    | 'sheetsColumns'
   >;
   organizers: Organizer[];
   participants: Participant[];
@@ -336,13 +415,66 @@ export async function postAppsScriptWebhookChunks(params: {
   };
 }
 
-export function generateGoogleAppsScriptCode(secret?: string): string {
+export function generateGoogleAppsScriptCode(
+  secret?: string,
+  columns?: SheetsColumnMapping[]
+): string {
   const safeSecret = (secret ?? '').replaceAll('\\', '\\\\').replaceAll("'", "\\'");
+  const effectiveCols =
+    Array.isArray(columns) && columns.length > 0
+      ? columns.map((c) => ({
+          header: c.header.trim() || 'Column',
+          sourceType: c.sourceType,
+          ...(c.fieldKey ? { fieldKey: c.fieldKey } : {}),
+          ...(c.itemId ? { itemId: c.itemId } : {}),
+          ...(c.staticValue !== undefined && c.staticValue !== ''
+            ? { staticValue: c.staticValue }
+            : {}),
+        }))
+      : [
+          { header: 'Tkt Number', sourceType: 'barcode' },
+          { header: 'Name', sourceType: 'participant_name' },
+        ];
+  const serializedColumns = JSON.stringify(effectiveCols, null, 2);
+
   return `// EM QR -> Google Sheets Auto Sync (Apps Script Web App)
 const SECRET = '${safeSecret}';
 
+// Custom sheet columns generated from your EM QR configuration:
+const SHEET_COLUMNS = ${serializedColumns};
+
 function doGet() {
   return jsonOut({ ok: true, service: 'EM QR Google Sheets Sync' });
+}
+
+function resolveColumnValue(col, entry) {
+  const src = col.sourceType || 'static_text';
+  const delivs = entry.deliveries || {};
+  const deliv = col.itemId ? delivs[col.itemId] : null;
+  const dyn = entry.dynamicData || {};
+
+  switch (src) {
+    case 'barcode':
+      return entry.barcode || '';
+    case 'participant_name':
+      return entry.name || '';
+    case 'dynamic_field':
+      return col.fieldKey && dyn[col.fieldKey] !== undefined ? String(dyn[col.fieldKey]) : '';
+    case 'item_status':
+      return deliv ? (deliv.statusText || (deliv.delivered ? 'Delivered' : 'Not Delivered')) : 'Not Delivered';
+    case 'item_time':
+      return deliv && deliv.delivered ? (deliv.deliveredAt12h || '') : '';
+    case 'item_organizer':
+      return deliv && deliv.delivered ? (deliv.deliveredByLabel || deliv.organizerName || '') : '';
+    case 'item_organizer_name':
+      return deliv && deliv.delivered ? (deliv.organizerName || '') : '';
+    case 'item_booth':
+      return deliv && deliv.delivered ? (deliv.boothName || '') : '';
+    case 'static_text':
+      return col.staticValue !== undefined ? String(col.staticValue) : '';
+    default:
+      return '';
+  }
 }
 
 function doPost(e) {
@@ -358,9 +490,10 @@ function doPost(e) {
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheets()[0];
-    const items = Array.isArray(data.items) ? data.items : [];
     const rows = Array.isArray(data.rows) ? data.rows : [];
-    const dynamicColumns = Array.isArray(data.dynamicColumns) ? data.dynamicColumns : [];
+    const activeColumns = Array.isArray(data.columns) && data.columns.length > 0
+      ? data.columns
+      : SHEET_COLUMNS;
     const isReset = data.mode === 'full';
 
     if (isReset) {
@@ -368,109 +501,26 @@ function doPost(e) {
       sheet.clearFormats();
     }
 
-    let lastCol = sheet.getLastColumn();
-    let headers = !isReset && lastCol > 0
-      ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return String(h || '').trim(); })
-      : [];
-
-    if (headers.length === 0) {
-      headers = ['Tkt Number', 'Name'];
-      dynamicColumns.forEach(function (col) {
-        const cleanCol = String(col || '').trim();
-        if (cleanCol && headers.indexOf(cleanCol) === -1) {
-          headers.push(cleanCol);
-        }
-      });
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    }
-
-    function ensureColumn(title) {
-      let idx = headers.indexOf(title);
-      if (idx === -1) {
-        headers.push(title);
-        idx = headers.length - 1;
-        sheet.getRange(1, idx + 1).setValue(title);
-      }
-      return idx;
-    }
-
-    function normalizeKey(v) {
-      return String(v || '').trim().replace(/\\s+/g, '-').toUpperCase();
-    }
-
-    let barcodeCol = headers.findIndex(function (h) {
-      return /tkt|ticket|barcode|باركود|كود|id|code|qr/i.test(h);
+    const headers = activeColumns.map(function (c, idx) {
+      return String(c.header || ('Column ' + (idx + 1))).trim();
     });
-    if (barcodeCol === -1) barcodeCol = 0;
-
-    const itemCols = {};
-    items.forEach(function (item) {
-      itemCols[item.id] = {
-        statusCol: ensureColumn(item.name + ' - Status'),
-        timeCol: ensureColumn(item.name + ' - Delivery Time'),
-        orgCol: ensureColumn(item.name + ' - Organizer'),
-      };
-    });
-
     const totalCols = headers.length;
-    const lastRow = sheet.getLastRow();
-    let existingGrid = !isReset && lastRow > 1
-      ? sheet.getRange(2, 1, lastRow - 1, totalCols).getValues()
-      : [];
 
-    const rowIndexByBarcode = {};
-    for (let r = 0; r < existingGrid.length; r++) {
-      const key = normalizeKey(existingGrid[r][barcodeCol]);
-      if (key) rowIndexByBarcode[key] = r;
+    if (totalCols > 0 && (isReset || sheet.getLastColumn() === 0 || sheet.getLastRow() === 0)) {
+      sheet.getRange(1, 1, 1, totalCols).setValues([headers]);
     }
 
-    const appendedRows = [];
-    let updatedRows = 0;
-    let insertedRows = 0;
-
+    const outputRows = [];
     rows.forEach(function (entry) {
-      const key = normalizeKey(entry.barcode);
-      if (!key) return;
-
-      const existingIdx = rowIndexByBarcode[key];
-      let targetArr;
-      if (existingIdx !== undefined) {
-        targetArr = existingGrid[existingIdx];
-        while (targetArr.length < totalCols) targetArr.push('');
-        updatedRows++;
-      } else {
-        targetArr = new Array(totalCols).fill('');
-        targetArr[barcodeCol] = entry.barcode;
-        const nameCol = headers.findIndex(function (h) { return /name|اسم/i.test(h); });
-        if (nameCol !== -1) targetArr[nameCol] = entry.name || '';
-        const dyn = entry.dynamicData || {};
-        headers.forEach(function (h, cIdx) {
-          if (cIdx !== barcodeCol && dyn[h] !== undefined && !targetArr[cIdx]) {
-            targetArr[cIdx] = dyn[h];
-          }
-        });
-        rowIndexByBarcode[key] = existingGrid.length + appendedRows.length;
-        appendedRows.push(targetArr);
-        insertedRows++;
-      }
-
-      const delivs = entry.deliveries || {};
-      items.forEach(function (item) {
-        const cols = itemCols[item.id];
-        const cell = delivs[item.id];
-        if (!cols || !cell) return;
-        targetArr[cols.statusCol] = cell.statusText || (cell.delivered ? 'Delivered' : 'Not Delivered');
-        targetArr[cols.timeCol] = cell.delivered ? (cell.deliveredAt12h || '') : '';
-        targetArr[cols.orgCol] = cell.delivered ? (cell.deliveredByLabel || cell.organizerName || '') : '';
+      const rowArr = activeColumns.map(function (col) {
+        return resolveColumnValue(col, entry);
       });
+      outputRows.push(rowArr);
     });
 
-    if (existingGrid.length > 0) {
-      sheet.getRange(2, 1, existingGrid.length, totalCols).setValues(existingGrid);
-    }
-    if (appendedRows.length > 0) {
-      const startRow = 2 + existingGrid.length;
-      sheet.getRange(startRow, 1, appendedRows.length, totalCols).setValues(appendedRows);
+    if (outputRows.length > 0 && totalCols > 0) {
+      const startRow = isReset ? 2 : Math.max(2, sheet.getLastRow() + 1);
+      sheet.getRange(startRow, 1, outputRows.length, totalCols).setValues(outputRows);
     }
 
     // Format Row 1 (headers): black bold text, orange background, centered horizontally & vertically
@@ -493,8 +543,8 @@ function doPost(e) {
 
     return jsonOut({
       ok: true,
-      updatedRows: updatedRows,
-      insertedRows: insertedRows,
+      updatedRows: 0,
+      insertedRows: outputRows.length,
       syncedAt: data.sentAt12h || ''
     });
   } catch (err) {

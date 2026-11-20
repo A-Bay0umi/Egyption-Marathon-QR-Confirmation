@@ -84,19 +84,28 @@ test('buildAppsScriptPayload prepares item delivery status, 12h English time, an
   assert.equal(payload.secret, 'sec_99');
   assert.equal(payload.rows.length, 1);
   assert.equal(payload.rows[0].barcode, 'R-101');
-  assert.equal(payload.rows[0].deliveries.tshirt.statusText, 'تم التسليم');
+  assert.equal(payload.rows[0].deliveries.tshirt.statusText, 'Delivered');
   assert.equal(payload.rows[0].deliveries.tshirt.deliveredAt12h, '2026-11-20 02:05:33 PM');
   assert.equal(payload.rows[0].deliveries.tshirt.deliveredByLabel, 'كريم طارق (بوث A)');
-  assert.equal(payload.rows[0].deliveries.medal.statusText, 'لم يستلم');
+  assert.equal(payload.rows[0].deliveries.medal.statusText, 'Not Delivered');
   assert.equal(payload.rows[0].deliveries.medal.deliveredAt12h, '');
 
   const fpBefore = computeParticipantDeliveriesFingerprint(participants[0]);
   assert.equal(fpBefore.includes('tshirt:delivered:org_1:2026-11-20T12:05:33Z'), true);
 });
 
-test('generateGoogleAppsScriptCode embeds secret cleanly and uses LockService', () => {
+test('generateGoogleAppsScriptCode embeds secret, English headers, and orange/centered formatting', () => {
   const code = generateGoogleAppsScriptCode("my'secret");
   assert.equal(code.includes("const SECRET = 'my\\'secret';"), true);
   assert.equal(code.includes('LockService.getScriptLock()'), true);
   assert.equal(code.includes('function doPost(e)'), true);
+  assert.equal(code.includes("headers = ['Tkt Number', 'Name'];"), true);
+  assert.equal(code.includes("item.name + ' - Status'"), true);
+  assert.equal(code.includes("item.name + ' - Delivery Time'"), true);
+  assert.equal(code.includes("item.name + ' - Organizer'"), true);
+  assert.equal(code.includes(".setFontColor('#000000')"), true);
+  assert.equal(code.includes(".setFontWeight('bold')"), true);
+  assert.equal(code.includes(".setBackground('#FF9800')"), true);
+  assert.equal(code.includes(".setHorizontalAlignment('center')"), true);
+  assert.equal(code.includes(".setVerticalAlignment('middle')"), true);
 });

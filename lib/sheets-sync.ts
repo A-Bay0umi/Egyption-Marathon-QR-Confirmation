@@ -41,7 +41,7 @@ export function formatDeliveryTime12hEn(iso?: string): string {
 
 export interface AppsScriptDeliveryCell {
   delivered: boolean;
-  statusText: 'تم التسليم' | 'لم يستلم';
+  statusText: 'Delivered' | 'Not Delivered';
   organizerName: string;
   boothName: string;
   deliveredByLabel: string;
@@ -148,7 +148,7 @@ export function buildAppsScriptPayload(params: {
         const deliveredByLabel = boothName && orgName ? `${orgName} (${boothName})` : orgName || boothName;
         deliveries[item.id] = {
           delivered: true,
-          statusText: 'تم التسليم',
+          statusText: 'Delivered',
           organizerName: orgName,
           boothName,
           deliveredByLabel,
@@ -158,7 +158,7 @@ export function buildAppsScriptPayload(params: {
       } else {
         deliveries[item.id] = {
           delivered: false,
-          statusText: 'لم يستلم',
+          statusText: 'Not Delivered',
           organizerName: '',
           boothName: '',
           deliveredByLabel: '',
@@ -277,7 +277,7 @@ function doPost(e) {
     const data = JSON.parse(raw);
 
     if (SECRET && String(data.secret || '') !== SECRET) {
-      return jsonOut({ ok: false, error: 'كود الحماية غير مطابق (Unauthorized)' });
+      return jsonOut({ ok: false, error: 'Unauthorized: Secret code does not match' });
     }
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -291,7 +291,7 @@ function doPost(e) {
       : [];
 
     if (headers.length === 0) {
-      headers = ['الباركود', 'الاسم'];
+      headers = ['Tkt Number', 'Name'];
       sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     }
 
@@ -310,16 +310,16 @@ function doPost(e) {
     }
 
     let barcodeCol = headers.findIndex(function (h) {
-      return /barcode|باركود|كود|id|code|qr/i.test(h);
+      return /tkt|ticket|barcode|باركود|كود|id|code|qr/i.test(h);
     });
     if (barcodeCol === -1) barcodeCol = 0;
 
     const itemCols = {};
     items.forEach(function (item) {
       itemCols[item.id] = {
-        statusCol: ensureColumn(item.name + ' - الحالة'),
-        timeCol: ensureColumn(item.name + ' - وقت التسليم'),
-        orgCol: ensureColumn(item.name + ' - المنظم'),
+        statusCol: ensureColumn(item.name + ' - Status'),
+        timeCol: ensureColumn(item.name + ' - Delivery Time'),
+        orgCol: ensureColumn(item.name + ' - Organizer'),
       };
     });
 
@@ -350,7 +350,7 @@ function doPost(e) {
       } else {
         targetArr = new Array(totalCols).fill('');
         targetArr[barcodeCol] = entry.barcode;
-        const nameCol = headers.findIndex(function (h) { return /اسم|name/i.test(h); });
+        const nameCol = headers.findIndex(function (h) { return /name|اسم/i.test(h); });
         if (nameCol !== -1) targetArr[nameCol] = entry.name || '';
         const dyn = entry.dynamicData || {};
         headers.forEach(function (h, cIdx) {
@@ -368,7 +368,7 @@ function doPost(e) {
         const cols = itemCols[item.id];
         const cell = delivs[item.id];
         if (!cols || !cell) return;
-        targetArr[cols.statusCol] = cell.statusText || (cell.delivered ? 'تم التسليم' : 'لم يستلم');
+        targetArr[cols.statusCol] = cell.statusText || (cell.delivered ? 'Delivered' : 'Not Delivered');
         targetArr[cols.timeCol] = cell.delivered ? (cell.deliveredAt12h || '') : '';
         targetArr[cols.orgCol] = cell.delivered ? (cell.deliveredByLabel || cell.organizerName || '') : '';
       });
@@ -380,6 +380,24 @@ function doPost(e) {
     if (appendedRows.length > 0) {
       const startRow = 2 + existingGrid.length;
       sheet.getRange(startRow, 1, appendedRows.length, totalCols).setValues(appendedRows);
+    }
+
+    // Format Row 1 (headers): black bold text, orange background, centered horizontally & vertically
+    if (totalCols > 0) {
+      sheet.getRange(1, 1, 1, totalCols)
+        .setFontColor('#000000')
+        .setFontWeight('bold')
+        .setBackground('#FF9800')
+        .setHorizontalAlignment('center')
+        .setVerticalAlignment('middle');
+    }
+
+    // Center all data rows horizontally & vertically
+    const finalLastRow = sheet.getLastRow();
+    if (finalLastRow > 1 && totalCols > 0) {
+      sheet.getRange(2, 1, finalLastRow - 1, totalCols)
+        .setHorizontalAlignment('center')
+        .setVerticalAlignment('middle');
     }
 
     return jsonOut({

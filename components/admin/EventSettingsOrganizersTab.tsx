@@ -277,11 +277,11 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 max-w-full">
       {/* Section 0: Registration Open / Close Schedule */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <CalendarClock className="w-5 h-5 text-emerald-600 shrink-0" />
             <div>
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
@@ -335,7 +335,7 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
 
         <form onSubmit={(e) => void handleSaveSchedule(e)} className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="registration-opens-input"
                 className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
@@ -349,11 +349,11 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
                 dir="ltr"
                 value={opensAtLocal}
                 onChange={(e) => setOpensAtLocal(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+                className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
               />
             </div>
 
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="registration-closes-input"
                 className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
@@ -367,7 +367,7 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
                 dir="ltr"
                 value={closesAtLocal}
                 onChange={(e) => setClosesAtLocal(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+                className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
               />
             </div>
           </div>
@@ -413,10 +413,10 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
       </section>
 
       {/* Section 1: Tasks / Deliverable Items Settings */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <ListChecks className="w-5 h-5 text-emerald-600" />
-          <div>
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-2 min-w-0">
+          <ListChecks className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div className="min-w-0">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
               إعدادات المهام والوظائف في هذا الإيفنت
             </h2>
@@ -432,7 +432,7 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
             value={newTaskName}
             onChange={(e) => setNewTaskName(e.target.value)}
             placeholder="أضف مهمة جديدة (مثال: التيشيرت)"
-            className="flex-1 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+            className="flex-1 min-w-0 w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
           />
           <button
             type="submit"
@@ -485,22 +485,22 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
                   key={item.id}
                   className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 dark:bg-black/40"
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <span className="inline-flex items-center justify-center rounded-lg bg-slate-200/80 dark:bg-neutral-800 px-2 py-1 text-[11px] font-bold font-mono-num text-slate-700 dark:text-neutral-200 shrink-0">
                       {idx + 1}
                     </span>
-                    <span className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                    <span className="text-sm font-bold text-slate-900 dark:text-white overflow-x-auto whitespace-nowrap">
                       {item.name}
                     </span>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0 max-w-full min-w-0">
                     {availablePrereqs.length > 0 && (
                       <select
                         aria-label={`الشرط المسبق لمهمة ${item.name}`}
                         value={item.dependsOnItemId ?? ''}
                         onChange={(e) => void handleSetTaskPrerequisite(item.id, e.target.value)}
-                        className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-white dark:bg-black px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-neutral-200 min-h-[38px]"
+                        className="w-full sm:w-auto min-w-0 max-w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-white dark:bg-black px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-neutral-200 min-h-[38px]"
                       >
                         <option value="">بدون شرط مسبق</option>
                         {availablePrereqs.map((prereq) => (
@@ -550,10 +550,10 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
       </section>
 
       {/* Section 2: Organizers & Multi-Role Assignment + WhatsApp Links */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-5">
-        <div className="flex items-center gap-2">
-          <UserPlus className="w-5 h-5 text-emerald-600" />
-          <div>
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-5 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-2 min-w-0">
+          <UserPlus className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div className="min-w-0">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
               إضافة منظم وتحديد وظائفه
             </h2>
@@ -565,7 +565,7 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
 
         <form onSubmit={(e) => void handleCreateOrganizer(e)} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="org-name-input"
                 className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
@@ -578,10 +578,10 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
                 value={orgName}
                 onChange={(e) => setOrgName(e.target.value)}
                 placeholder="مثال: خالد محمود"
-                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+                className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="org-booth-input"
                 className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
@@ -594,10 +594,10 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
                 value={boothName}
                 onChange={(e) => setBoothName(e.target.value)}
                 placeholder="مثال: بوث 1"
-                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+                className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="org-whatsapp-input"
                 className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
@@ -613,7 +613,7 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
                   value={whatsappPhone}
                   onChange={(e) => setWhatsappPhone(e.target.value)}
                   placeholder="01012345678"
-                  className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-9 pl-3 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+                  className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-9 pl-3 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
                 />
               </div>
             </div>
@@ -686,29 +686,29 @@ export const EventSettingsOrganizersTab: React.FC<EventSettingsOrganizersTabProp
                   <div
                     key={org.id}
                     data-testid={`organizer-row-${org.magicToken}`}
-                    className={`rounded-2xl border p-4 transition-colors space-y-3 ${
+                    className={`min-w-0 overflow-hidden rounded-2xl border p-4 transition-colors space-y-3 ${
                       org.isActive
                         ? 'border-slate-200 dark:border-neutral-800 bg-slate-50/40 dark:bg-black/40'
                         : 'border-red-300 dark:border-red-900 bg-red-50/40 dark:bg-red-950/20'
                     }`}
                   >
-                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                      <div className="space-y-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 text-sm">
-                          <span className="font-bold text-slate-900 dark:text-white">
+                    <div className="min-w-0 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 text-sm min-w-0">
+                          <span className="font-bold text-slate-900 dark:text-white max-w-full overflow-x-auto whitespace-nowrap">
                             {org.name}
                           </span>
                           {org.boothName && (
-                            <span className="text-xs text-slate-500 dark:text-neutral-400">
+                            <span className="text-xs text-slate-500 dark:text-neutral-400 max-w-full overflow-x-auto whitespace-nowrap">
                               · {org.boothName}
                             </span>
                           )}
-                          <span className="text-xs font-mono-num font-bold text-emerald-700 dark:text-emerald-400">
+                          <span className="text-xs font-mono-num font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
                             · سلّم {org.deliveredCount} عنصر
                           </span>
                         </div>
 
-                        <div className="text-xs text-slate-600 dark:text-neutral-400">
+                        <div className="text-xs text-slate-600 dark:text-neutral-400 overflow-x-auto whitespace-nowrap pb-0.5">
                           الوظائف: {assignedNames || 'لا يوجد'}
                           {org.whatsappPhone && (
                             <>

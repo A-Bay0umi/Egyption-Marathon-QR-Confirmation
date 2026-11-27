@@ -515,7 +515,7 @@ export const AdminDashboardApp: React.FC = () => {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 sm:px-6 pt-5 space-y-6">
+      <main className="max-w-6xl w-full min-w-0 mx-auto px-4 sm:px-6 pt-5 space-y-6 overflow-x-hidden">
         {firestoreError && (
           <div className="rounded-2xl border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/60 p-4 text-xs font-semibold text-red-800 dark:text-red-200">
             تنبيه قاعدة البيانات: {firestoreError}
@@ -579,7 +579,7 @@ export const AdminDashboardApp: React.FC = () => {
                   <div
                     key={ev.id}
                     data-testid={`event-card-${ev.id}`}
-                    className={`rounded-2xl border p-5 flex flex-col justify-between gap-4 transition-colors ${
+                    className={`rounded-2xl border p-5 flex flex-col justify-between gap-4 transition-colors min-w-0 overflow-hidden ${
                       ev.isActive
                         ? 'border-emerald-600 bg-white dark:bg-neutral-950 ring-1 ring-emerald-600/30'
                         : 'border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950'
@@ -649,8 +649,8 @@ export const AdminDashboardApp: React.FC = () => {
           </div>
         ) : (
           /* STAGE 2: Inside Selected Event */
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-5 min-w-0 max-w-full">
+            <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
               <nav
                 aria-label="صفحات الإيفنت"
                 className="flex items-center gap-1.5 overflow-x-auto p-1.5 rounded-2xl bg-slate-200/70 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 w-full sm:w-auto"
@@ -848,7 +848,7 @@ export const AdminDashboardApp: React.FC = () => {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor="new-event-opens-at"
                     className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
@@ -861,10 +861,10 @@ export const AdminDashboardApp: React.FC = () => {
                     dir="ltr"
                     value={newOpensAt}
                     onChange={(e) => setNewOpensAt(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[42px]"
+                    className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[42px]"
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor="new-event-closes-at"
                     className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
@@ -877,7 +877,7 @@ export const AdminDashboardApp: React.FC = () => {
                     dir="ltr"
                     value={newClosesAt}
                     onChange={(e) => setNewClosesAt(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[42px]"
+                    className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[42px]"
                   />
                 </div>
               </div>
@@ -886,7 +886,7 @@ export const AdminDashboardApp: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1">
                   مهام التوزيع المبدئية (اختياري — يمكنك التعديل لاحقاً)
                 </label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 min-w-0">
                   <input
                     type="text"
                     value={newTaskInput}
@@ -898,7 +898,7 @@ export const AdminDashboardApp: React.FC = () => {
                       }
                     }}
                     placeholder="مثال: تيشيرت أو رقم الصدر"
-                    className="flex-1 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2 text-sm text-slate-900 dark:text-white min-h-[44px]"
+                    className="flex-1 min-w-0 w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2 text-sm text-slate-900 dark:text-white min-h-[44px]"
                   />
                   <button
                     type="button"

@@ -120,9 +120,9 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 max-w-full">
       {/* Header & Controls */}
-      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-3 min-w-0 overflow-hidden">
         <div>
           <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -235,7 +235,7 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
               <article
                 key={conflict.conflictKey}
                 data-testid={`conflict-card-${conflict.conflictKey}`}
-                className={`rounded-2xl border p-4 sm:p-5 space-y-4 transition-colors ${
+                className={`rounded-2xl border p-4 sm:p-5 space-y-4 transition-colors min-w-0 overflow-hidden ${
                   isResolved
                     ? 'border-emerald-200 dark:border-emerald-900/70 bg-white dark:bg-neutral-950'
                     : 'border-amber-300 dark:border-amber-800 bg-white dark:bg-neutral-950'
@@ -295,8 +295,8 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
                               : 'border-slate-200 dark:border-neutral-800 bg-slate-50/70 dark:bg-black/60'
                           }`}
                         >
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-xs sm:text-sm overflow-x-auto whitespace-nowrap">
                               <span className="inline-flex items-center justify-center rounded-md bg-slate-200 dark:bg-neutral-800 px-1.5 py-0.5 text-[11px] font-bold font-mono-num text-slate-700 dark:text-neutral-300">
                                 #{idx + 1}
                               </span>
@@ -317,7 +317,7 @@ export const EventConflictsTab: React.FC<EventConflictsTabProps> = ({
                               )}
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-neutral-400 font-mono-num">
+                            <div className="flex items-center gap-x-3 text-[11px] text-slate-500 dark:text-neutral-400 font-mono-num overflow-x-auto whitespace-nowrap">
                               <span className="inline-flex items-center gap-1">
                                 <Clock className="w-3 h-3 shrink-0" />
                                 <span>{formatArabicTime(deliv.timestamp)}</span>

@@ -200,13 +200,13 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 max-w-full">
       {/* Header & Action Bar */}
-      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
+      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 min-w-0 overflow-hidden">
+        <div className="min-w-0">
           <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-            <span>التقرير العام للإيفنت</span>
+            <BarChart3 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span className="truncate">التقرير العام للإيفنت</span>
           </h2>
           <p className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5 font-mono-num">
             إجمالي المتسابقين: {report.totalParticipants.toLocaleString('en-US')} · جميع التسليمات المسجلة على الإيفنت
@@ -310,20 +310,20 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                   return (
                     <div
                       key={item.itemId}
-                      className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 space-y-3"
+                      className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 space-y-3 min-w-0 overflow-hidden"
                     >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm sm:text-base font-bold text-slate-900 dark:text-white truncate">
                             {item.itemName}
                           </div>
                           {item.prerequisiteName && (
-                            <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 mt-0.5">
+                            <div className="text-[11px] font-semibold text-amber-700 dark:text-amber-400 mt-0.5 truncate">
                               يشترط استلام: {item.prerequisiteName}
                             </div>
                           )}
                         </div>
-                        <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono-num">
+                        <span className="text-lg font-bold text-emerald-700 dark:text-emerald-400 font-mono-num shrink-0">
                           {item.percentage}%
                         </span>
                       </div>
@@ -335,37 +335,39 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                         />
                       </div>
 
-                      <div className="grid grid-cols-4 gap-2 pt-1 text-center">
-                        <div className="rounded-xl bg-slate-50 dark:bg-neutral-900 px-2 py-1.5">
-                          <div className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400">
-                            المسلَّم
+                      <div className="w-full overflow-x-auto pt-1">
+                        <div className="grid grid-cols-4 min-w-[280px] gap-2 text-center">
+                          <div className="rounded-xl bg-slate-50 dark:bg-neutral-900 px-2 py-1.5 min-w-0">
+                            <div className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400 whitespace-nowrap">
+                              المسلَّم
+                            </div>
+                            <div className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 font-mono-num">
+                              {item.delivered.toLocaleString('en-US')}
+                            </div>
                           </div>
-                          <div className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 font-mono-num">
-                            {item.delivered.toLocaleString('en-US')}
+                          <div className="rounded-xl bg-slate-50 dark:bg-neutral-900 px-2 py-1.5 min-w-0">
+                            <div className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400 whitespace-nowrap">
+                              الإجمالي
+                            </div>
+                            <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono-num">
+                              {item.total.toLocaleString('en-US')}
+                            </div>
                           </div>
-                        </div>
-                        <div className="rounded-xl bg-slate-50 dark:bg-neutral-900 px-2 py-1.5">
-                          <div className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400">
-                            الإجمالي
+                          <div className="rounded-xl bg-slate-50 dark:bg-neutral-900 px-2 py-1.5 min-w-0">
+                            <div className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400 whitespace-nowrap">
+                              المتبقي
+                            </div>
+                            <div className="text-xs sm:text-sm font-bold text-slate-700 dark:text-neutral-300 font-mono-num">
+                              {item.remaining.toLocaleString('en-US')}
+                            </div>
                           </div>
-                          <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white font-mono-num">
-                            {item.total.toLocaleString('en-US')}
-                          </div>
-                        </div>
-                        <div className="rounded-xl bg-slate-50 dark:bg-neutral-900 px-2 py-1.5">
-                          <div className="text-[10px] font-semibold text-slate-500 dark:text-neutral-400">
-                            المتبقي
-                          </div>
-                          <div className="text-xs sm:text-sm font-bold text-slate-700 dark:text-neutral-300 font-mono-num">
-                            {item.remaining.toLocaleString('en-US')}
-                          </div>
-                        </div>
-                        <div className="rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 px-2 py-1.5">
-                          <div className="text-[10px] font-semibold text-emerald-800 dark:text-emerald-300">
-                            جاهز للاستلام
-                          </div>
-                          <div className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 font-mono-num">
-                            {item.readyToReceiveCount.toLocaleString('en-US')}
+                          <div className="rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 px-2 py-1.5 min-w-0">
+                            <div className="text-[10px] font-semibold text-emerald-800 dark:text-emerald-300 whitespace-nowrap">
+                              جاهز للاستلام
+                            </div>
+                            <div className="text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-400 font-mono-num">
+                              {item.readyToReceiveCount.toLocaleString('en-US')}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -408,10 +410,10 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                   return (
                     <div
                       key={group.itemId}
-                      className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 space-y-3"
+                      className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 space-y-3 min-w-0 overflow-hidden"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
                           <h4 className="text-sm font-bold text-slate-900 dark:text-white">
                             {group.itemName}
                           </h4>
@@ -424,7 +426,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                         </div>
 
                         {group.pendingCount > 0 && (
-                          <div className="relative w-full sm:w-64">
+                          <div className="relative w-full sm:w-64 min-w-0">
                             <Search className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                             <input
                               type="text"
@@ -436,7 +438,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                                 }))
                               }
                               placeholder="ابحث بالاسم أو الباركود..."
-                              className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-9 pl-3 py-1.5 text-xs text-slate-900 dark:text-white min-h-[38px]"
+                              className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-9 pl-3 py-1.5 text-xs text-slate-900 dark:text-white min-h-[38px]"
                             />
                           </div>
                         )}
@@ -444,7 +446,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
 
                       {group.pendingCount === 0 ? (
                         <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
                           <span>تم استلام هذا العنصر بالكامل من جميع المتسابقين.</span>
                         </div>
                       ) : filtered.length === 0 ? (
@@ -457,14 +459,14 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                             {visibleParticipants.map((p) => (
                               <div
                                 key={p.barcode}
-                                className="rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50/70 dark:bg-neutral-900/60 px-3 py-2 flex items-center justify-between gap-2"
+                                className="rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50/70 dark:bg-neutral-900/60 px-3 py-2 flex items-center justify-between gap-2 min-w-0 overflow-hidden"
                               >
-                                <div className="min-w-0">
-                                  <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                                <div className="min-w-0 flex-1 overflow-x-auto">
+                                  <div className="text-xs font-bold text-slate-900 dark:text-white whitespace-nowrap">
                                     {p.name}
                                   </div>
                                   <div
-                                    className="text-[11px] text-slate-500 dark:text-neutral-400 truncate font-ascii-mono"
+                                    className="text-[11px] text-slate-500 dark:text-neutral-400 whitespace-nowrap font-ascii-mono"
                                     dir="ltr"
                                   >
                                     {p.barcode}
@@ -472,7 +474,7 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
                                   </div>
                                 </div>
                                 <span
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md shrink-0 whitespace-nowrap ${
                                     p.isReady
                                       ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
                                       : 'bg-slate-200 dark:bg-neutral-800 text-slate-600 dark:text-neutral-400'
@@ -549,41 +551,41 @@ export const EventDayReportTab: React.FC<EventDayReportTabProps> = ({
             </div>
 
             {report.audit.undoneEntries.length > 0 && (
-              <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 overflow-hidden">
+              <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 min-w-0 overflow-hidden">
                 <div className="px-4 py-3 border-b border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-neutral-900 text-xs font-bold text-slate-700 dark:text-neutral-200">
                   تفاصيل عمليات الإلغاء ({report.audit.undoneEntries.length.toLocaleString('en-US')})
                 </div>
-                <div className="overflow-x-auto">
+                <div className="w-full max-w-full overflow-x-auto">
                   <table className="w-full text-right text-xs">
                     <thead className="border-b border-slate-100 dark:border-neutral-800 text-slate-500 dark:text-neutral-400">
                       <tr>
-                        <th className="py-2.5 px-4 font-bold">المتسابق</th>
-                        <th className="py-2.5 px-3 font-bold">الباركود</th>
-                        <th className="py-2.5 px-3 font-bold">العنصر</th>
-                        <th className="py-2.5 px-3 font-bold">المنفّذ</th>
-                        <th className="py-2.5 px-3 font-bold">الوقت</th>
+                        <th className="py-2.5 px-4 font-bold whitespace-nowrap">المتسابق</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">الباركود</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">العنصر</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">المنفّذ</th>
+                        <th className="py-2.5 px-3 font-bold whitespace-nowrap">الوقت</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-neutral-800">
                       {report.audit.undoneEntries.map((u) => (
                         <tr key={u.logId}>
-                          <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-white">
+                          <td className="py-2.5 px-4 font-bold text-slate-900 dark:text-white whitespace-nowrap">
                             {u.participantName}
                           </td>
                           <td
-                            className="py-2.5 px-3 font-ascii-mono text-slate-600 dark:text-neutral-300"
+                            className="py-2.5 px-3 font-ascii-mono text-slate-600 dark:text-neutral-300 whitespace-nowrap"
                             dir="ltr"
                           >
                             {u.barcode}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-700 dark:text-neutral-200">
+                          <td className="py-2.5 px-3 text-slate-700 dark:text-neutral-200 whitespace-nowrap">
                             {u.itemName}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-700 dark:text-neutral-300">
+                          <td className="py-2.5 px-3 text-slate-700 dark:text-neutral-300 whitespace-nowrap">
                             {u.organizerName}
                           </td>
                           <td
-                            className="py-2.5 px-3 font-ascii-mono text-slate-600 dark:text-neutral-400"
+                            className="py-2.5 px-3 font-ascii-mono text-slate-600 dark:text-neutral-400 whitespace-nowrap"
                             dir="ltr"
                           >
                             {formatDeliveryTime12hEn(u.timestamp)}

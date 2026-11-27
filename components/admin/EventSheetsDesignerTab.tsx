@@ -357,13 +357,13 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 max-w-full">
       {/* 1. Connection & Auto-Sync Settings */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-5 space-y-4">
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5 min-w-0">
             <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />
-            <div>
+            <div className="min-w-0">
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
                 ربط Google Sheet والمزامنة التلقائية
               </h2>
@@ -383,7 +383,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
-          <div className="lg:col-span-8">
+          <div className="lg:col-span-8 min-w-0">
             <label
               htmlFor="sheet-tab-webhook-url"
               className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1"
@@ -401,11 +401,11 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                 setSaveError(null);
               }}
               placeholder="https://script.google.com/macros/s/.../exec"
-              className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+              className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
             />
           </div>
 
-          <div className="lg:col-span-4 flex flex-wrap items-center gap-2">
+          <div className="lg:col-span-4 min-w-0 flex flex-wrap items-center gap-2">
             {event.sheetsWebhookUrl && onManualSyncSheets && (
               <button
                 type="button"
@@ -453,7 +453,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
       </section>
 
       {/* 2. Dedicated New Column Creator */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-5 space-y-4">
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden">
         <div>
           <h2 className="text-base font-bold text-slate-900 dark:text-white">
             إضافة عمود جديد للشيت
@@ -466,7 +466,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
         <form onSubmit={handleAddColumn} className="space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
             {/* Step A: Header title */}
-            <div className="lg:col-span-4">
+            <div className="lg:col-span-4 min-w-0">
               <label
                 htmlFor="new-sheet-col-header"
                 className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5"
@@ -484,16 +484,16 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                   setCreatorError(null);
                 }}
                 placeholder="مثال: Tkt Number أو T-Shirt Status"
-                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+                className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
               />
             </div>
 
             {/* Step B: Category selector */}
-            <div className="lg:col-span-4">
+            <div className="lg:col-span-4 min-w-0">
               <div className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5">
                 2. يجيب البيانات منين؟
               </div>
-              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800">
+              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-100 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 overflow-x-auto">
                 <button
                   type="button"
                   data-testid="source-cat-excel"
@@ -543,9 +543,9 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
             </div>
 
             {/* Step C: Specific data field */}
-            <div className="lg:col-span-4">
+            <div className="lg:col-span-4 min-w-0">
               {creatorCategory === 'excel' && (
-                <div className="space-y-2">
+                <div className="space-y-2 min-w-0">
                   <label
                     htmlFor="excel-field-select"
                     className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5"
@@ -557,7 +557,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                     data-testid="excel-field-select"
                     value={excelSelection}
                     onChange={(e) => handleSelectExcelOption(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white min-h-[44px]"
+                    className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2.5 text-xs sm:text-sm text-slate-900 dark:text-white min-h-[44px]"
                   >
                     <option value="__barcode__">الباركود / رقم التذكرة (Tkt Number)</option>
                     <option value="__name__">اسم المتسابق المحسوب (Name)</option>
@@ -576,14 +576,14 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                       value={customExcelField}
                       onChange={(e) => setCustomExcelField(e.target.value)}
                       placeholder="اكتب اسم العمود كما في الإكسل"
-                      className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[40px]"
+                      className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white min-h-[40px]"
                     />
                   )}
                 </div>
               )}
 
               {creatorCategory === 'delivery' && (
-                <div className="space-y-2">
+                <div className="space-y-2 min-w-0">
                   <label
                     htmlFor="delivery-item-select"
                     className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5"
@@ -596,7 +596,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                       data-testid="delivery-item-select"
                       value={deliveryItemId || event.deliverableItems[0]?.id || ''}
                       onChange={(e) => setDeliveryItemId(e.target.value)}
-                      className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-2.5 py-2.5 text-xs text-slate-900 dark:text-white min-h-[44px]"
+                      className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-2.5 py-2.5 text-xs text-slate-900 dark:text-white min-h-[44px]"
                     >
                       {event.deliverableItems.length === 0 ? (
                         <option value="">لا توجد مهام بعد</option>
@@ -616,7 +616,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                       onChange={(e) =>
                         setDeliveryMetric(e.target.value as DeliveryMetricOption)
                       }
-                      className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-2.5 py-2.5 text-xs text-slate-900 dark:text-white min-h-[44px]"
+                      className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-2.5 py-2.5 text-xs text-slate-900 dark:text-white min-h-[44px]"
                     >
                       {DELIVERY_METRIC_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -629,7 +629,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
               )}
 
               {creatorCategory === 'static' && (
-                <div>
+                <div className="min-w-0">
                   <label
                     htmlFor="static-text-input"
                     className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5"
@@ -642,7 +642,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                     value={staticTextValue}
                     onChange={(e) => setStaticTextValue(e.target.value)}
                     placeholder="مثال: 15th Marathon"
-                    className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+                    className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
                   />
                 </div>
               )}
@@ -688,7 +688,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
       </section>
 
       {/* 3. Live Sheet Table Preview & Column Order */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-5 space-y-5">
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-5 min-w-0 overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
@@ -712,7 +712,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
         ) : (
           <>
             {/* Live spreadsheet table preview */}
-            <div className="overflow-x-auto rounded-xl border border-slate-300 dark:border-neutral-700">
+            <div className="w-full max-w-full overflow-x-auto rounded-xl border border-slate-300 dark:border-neutral-700">
               <table dir="ltr" className="w-full border-collapse text-xs">
                 <thead>
                   <tr className="bg-[#FF9800] text-black font-bold">
@@ -745,11 +745,11 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
             </div>
 
             {/* Editable ordered column rows */}
-            <div className="divide-y divide-slate-200 dark:divide-neutral-800 border border-slate-200 dark:border-neutral-800 rounded-xl overflow-hidden">
+            <div className="divide-y divide-slate-200 dark:divide-neutral-800 border border-slate-200 dark:border-neutral-800 rounded-xl overflow-hidden min-w-0">
               {columns.map((col, idx) => (
                 <div
                   key={col.id}
-                  className="p-3 bg-white dark:bg-neutral-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  className="p-3 bg-white dark:bg-neutral-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0"
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <span className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 flex items-center justify-center text-xs font-bold font-ascii-mono tabular-nums text-slate-700 dark:text-neutral-200 shrink-0">
@@ -763,9 +763,9 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                         aria-label={`عنوان العمود ${idx + 1}`}
                         value={col.header}
                         onChange={(e) => handleRenameColumn(col.id, e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-1.5 text-xs font-bold font-ascii-mono text-slate-900 dark:text-white min-h-[38px]"
+                        className="w-full min-w-0 rounded-lg border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-1.5 text-xs font-bold font-ascii-mono text-slate-900 dark:text-white min-h-[38px]"
                       />
-                      <div className="text-xs text-slate-500 dark:text-neutral-400 truncate">
+                      <div className="text-xs text-slate-500 dark:text-neutral-400 overflow-x-auto whitespace-nowrap pb-0.5">
                         {describeColumnSource(col, event)}
                       </div>
                     </div>
@@ -842,10 +842,10 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
       {codeVisible && columns.length > 0 && (
         <section
           data-testid="generated-apps-script-section"
-          className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-5 space-y-4"
+          className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <h2 className="text-base font-bold text-slate-900 dark:text-white">
                 كود Google Apps Script الجاهز ({columns.length} عمود)
               </h2>
@@ -868,7 +868,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
           <pre
             dir="ltr"
             data-testid="generated-apps-script-code"
-            className="max-h-96 overflow-auto rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black p-4 text-[11px] font-ascii-mono text-slate-800 dark:text-neutral-200 leading-relaxed"
+            className="w-full max-w-full max-h-96 overflow-auto rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black p-4 text-[11px] font-ascii-mono text-slate-800 dark:text-neutral-200 leading-relaxed"
           >
             {generatedCode}
           </pre>

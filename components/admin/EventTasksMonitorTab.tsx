@@ -220,9 +220,9 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
   // LEVEL 1: Tasks Icons Overview Grid (Click any task icon to drill in)
   if (!activeTask) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-5 min-w-0 max-w-full">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
               أيقونات المهام ({event.deliverableItems.length})
             </h2>
@@ -295,14 +295,14 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
                 type="button"
                 data-testid={`task-tile-${st.itemId}`}
                 onClick={() => handleOpenTask(st.itemId)}
-                className="group text-right rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-5 hover:border-emerald-600 dark:hover:border-emerald-500 hover:shadow-md transition-all flex flex-col justify-between gap-4"
+                className="group text-right rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-5 hover:border-emerald-600 dark:hover:border-emerald-500 hover:shadow-md transition-all flex flex-col justify-between gap-4 min-w-0 w-full overflow-hidden"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex items-start justify-between gap-3 w-full min-w-0">
+                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
                     <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/70 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                       <TaskIcon taskName={st.itemName} className="w-6 h-6 text-emerald-700 dark:text-emerald-400" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="text-[11px] font-bold text-slate-400 dark:text-neutral-500 font-mono-num">
                         مهمة #{idx + 1}
                       </div>
@@ -370,11 +370,11 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
   const pct = activeTaskStat?.percentage ?? 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 max-w-full">
       {/* Back Bar & Task Header */}
-      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <button
               type="button"
               onClick={() => setDrilledTaskId(null)}
@@ -388,7 +388,7 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
               <TaskIcon taskName={activeTask.name} className="w-5 h-5 text-emerald-700 dark:text-emerald-400" />
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">
                 {activeTask.name}
               </h2>
@@ -470,8 +470,8 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
       )}
 
       {/* Selected Task Delivery List */}
-      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 min-w-0">
           <div className="text-xs font-bold text-slate-600 dark:text-neutral-400 font-mono-num">
             النتائج المعروضة: {filteredParticipants.length} متسابق
           </div>
@@ -541,10 +541,10 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
               return (
                 <div
                   key={p.barcode}
-                  className="p-3.5 sm:px-4 bg-white dark:bg-neutral-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  className="p-3.5 sm:px-4 bg-white dark:bg-neutral-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0"
                 >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
                       <span className="text-sm font-bold text-slate-900 dark:text-white">
                         {name}
                       </span>
@@ -556,7 +556,7 @@ export const EventTasksMonitorTab: React.FC<EventTasksMonitorTabProps> = ({
                       </span>
                     </div>
                     {extraSummary && (
-                      <div className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5 truncate">
+                      <div className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5 overflow-x-auto whitespace-nowrap">
                         {extraSummary}
                       </div>
                     )}

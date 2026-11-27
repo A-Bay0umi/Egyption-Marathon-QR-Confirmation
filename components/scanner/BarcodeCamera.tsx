@@ -844,8 +844,8 @@ export const BarcodeCamera = forwardRef<BarcodeCameraHandle, BarcodeCameraProps>
       </div>
 
       {/* Quick manual barcode entry */}
-      <form onSubmit={handleManualSubmit} className="flex items-center gap-2">
-        <div className="relative flex-1">
+      <form onSubmit={handleManualSubmit} className="flex items-center gap-2 min-w-0">
+        <div className="relative flex-1 min-w-0">
           <Keyboard className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
@@ -853,7 +853,7 @@ export const BarcodeCamera = forwardRef<BarcodeCameraHandle, BarcodeCameraProps>
             value={manualCode}
             onChange={(e) => setManualCode(e.target.value)}
             placeholder="أدخل الباركود واضغط Enter..."
-            className="w-full rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black pr-9 pl-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white placeholder:text-slate-400 min-h-[40px]"
+            className="w-full min-w-0 rounded-xl border border-slate-200 dark:border-neutral-800 bg-slate-50 dark:bg-black pr-9 pl-3 py-2 text-xs font-ascii-mono text-slate-900 dark:text-white placeholder:text-slate-400 min-h-[40px]"
           />
         </div>
         <button

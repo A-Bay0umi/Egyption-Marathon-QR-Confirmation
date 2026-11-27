@@ -4,6 +4,15 @@
 @layer base {
   html {
     font-family: var(--font-arabic), system-ui, -apple-system, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  body {
+    max-width: 100%;
+    overflow-x: clip;
   }
 
   .font-mono-num {
@@ -15,6 +24,22 @@
     font-family: var(--font-mono), monospace;
     font-variant-numeric: tabular-nums;
   }
+}
+
+/* Prevent iOS Safari / WebView auto-zoom when focusing inputs, selects, or textareas */
+@media screen and (max-width: 1023px), (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='range']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Keep horizontal scroll containers smooth inside bounded columns on touch devices */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
 }
 
 /* Custom styling for html5-qrcode container in RTL */

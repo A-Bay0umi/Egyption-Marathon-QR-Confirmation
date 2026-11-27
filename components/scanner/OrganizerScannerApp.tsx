@@ -698,7 +698,7 @@ export const OrganizerScannerApp: React.FC = () => {
               >
                 تفعيل سريع داخل التطبيق (الصق الرابط أو رسالة الواتساب):
               </label>
-              <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex flex-col sm:flex-row gap-2 min-w-0">
                 <input
                   id="paste-invite-input"
                   type="text"
@@ -709,7 +709,7 @@ export const OrganizerScannerApp: React.FC = () => {
                     setInvitePasteError(null);
                   }}
                   placeholder="https://.../?event=...&token=..."
-                  className="flex-1 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[46px]"
+                  className="flex-1 min-w-0 w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-xs sm:text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[46px]"
                 />
                 <button
                   type="submit"
@@ -1107,9 +1107,9 @@ export const OrganizerScannerApp: React.FC = () => {
               </div>
             )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start min-w-0">
           {/* Scanner & Search Column — hidden automatically after barcode scan so participant view takes the full screen */}
-          <div className={selectedParticipant ? 'hidden' : 'lg:col-span-5 space-y-3'}>
+          <div className={selectedParticipant ? 'hidden' : 'lg:col-span-5 space-y-3 min-w-0'}>
             <BarcodeCamera
               ref={cameraRef}
               onScan={handleBarcodeScanned}
@@ -1117,7 +1117,7 @@ export const OrganizerScannerApp: React.FC = () => {
               onUserGesture={unlockAudio}
             />
 
-            <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-3 sm:p-4">
+            <div className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-3 sm:p-4 min-w-0 overflow-hidden">
               <label
                 htmlFor="fallback-search-input"
                 className="block text-sm font-bold text-slate-900 dark:text-white mb-2"
@@ -1172,11 +1172,11 @@ export const OrganizerScannerApp: React.FC = () => {
                           }}
                           className="w-full text-right px-4 py-3 hover:bg-emerald-50 dark:hover:bg-neutral-900 transition-colors flex items-center justify-between gap-3 min-h-[56px]"
                         >
-                          <div className="min-w-0">
-                            <div className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-bold text-slate-900 dark:text-white overflow-x-auto whitespace-nowrap">
                               {displayName}
                             </div>
-                            <div className="text-xs text-slate-500 dark:text-neutral-400 font-mono-num mt-0.5">
+                            <div className="text-xs text-slate-500 dark:text-neutral-400 font-mono-num mt-0.5 overflow-x-auto whitespace-nowrap">
                               <span dir="ltr" className="font-ascii-mono">
                                 {p.barcode}
                               </span>
@@ -1198,7 +1198,7 @@ export const OrganizerScannerApp: React.FC = () => {
           </div>
 
           {/* Participant Card & Action Column — expands full-width when a participant is scanned/selected */}
-          <div className={selectedParticipant ? 'lg:col-span-12 space-y-4' : 'lg:col-span-7 space-y-4'}>
+          <div className={selectedParticipant ? 'lg:col-span-12 space-y-4 min-w-0' : 'lg:col-span-7 space-y-4 min-w-0'}>
             {selectedParticipant && (
               <div
                 data-testid="post-scan-top-bar"
@@ -1281,18 +1281,18 @@ export const OrganizerScannerApp: React.FC = () => {
                     exit={{ opacity: 0, y: -6 }}
                     transition={{ duration: 0.16 }}
                     data-testid="participant-full-card"
-                    className="rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 shadow-sm space-y-4"
+                    className="min-w-0 overflow-hidden rounded-3xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 shadow-sm space-y-4"
                   >
-                    <div className="space-y-3.5">
-                    <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-neutral-800">
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400">
+                    <div className="space-y-3.5 min-w-0">
+                    <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100 dark:border-neutral-800 min-w-0">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-semibold text-slate-500 dark:text-neutral-400 overflow-x-auto whitespace-nowrap">
                           باركود:{' '}
                           <span dir="ltr" className="font-ascii-mono">
                             {selectedParticipant.barcode}
                           </span>
                         </div>
-                        <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 leading-tight">
+                        <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mt-0.5 leading-tight overflow-x-auto whitespace-nowrap">
                           {participantDisplayName}
                         </h2>
                       </div>
@@ -1398,14 +1398,14 @@ export const OrganizerScannerApp: React.FC = () => {
                           return (
                             <div
                               key={field}
-                              className={`rounded-2xl p-3 sm:p-4 border ${
+                              className={`rounded-2xl p-3 sm:p-4 border min-w-0 overflow-hidden ${
                                 isHighlight
                                   ? 'bg-slate-900 dark:bg-neutral-900 text-white border-slate-800 dark:border-neutral-700'
                                   : 'bg-slate-50 dark:bg-black text-slate-900 dark:text-white border-slate-200 dark:border-neutral-800'
                               }`}
                             >
                               <div
-                                className={`text-xs font-semibold ${
+                                className={`text-xs font-semibold overflow-x-auto whitespace-nowrap ${
                                   isHighlight
                                     ? 'text-slate-300 dark:text-neutral-400'
                                     : 'text-slate-500 dark:text-neutral-400'
@@ -1414,7 +1414,7 @@ export const OrganizerScannerApp: React.FC = () => {
                                 {label}
                               </div>
                               <div
-                                className={`mt-1 font-bold break-words ${
+                                className={`mt-1 font-bold overflow-x-auto whitespace-nowrap ${
                                   isHighlight
                                     ? 'text-xl sm:text-2xl font-mono-num text-emerald-400'
                                     : 'text-sm sm:text-base font-mono-num'

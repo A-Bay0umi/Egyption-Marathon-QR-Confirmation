@@ -213,7 +213,7 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 max-w-full">
       {statusMessage && (
         <div className="rounded-2xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/50 p-3.5 text-xs font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -228,10 +228,10 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
       )}
 
       {/* Add Single Participant Form */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-emerald-600" />
+          <div className="flex items-center gap-2 min-w-0">
+            <UserPlus className="w-5 h-5 text-emerald-600 shrink-0" />
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
               إضافة متسابقين لهذا الإيفنت
             </h2>
@@ -254,7 +254,7 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
             onChange={(e) => setNameInput(e.target.value)}
             placeholder="اسم المتسابق *"
             required
-            className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+            className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
           />
           <input
             type="text"
@@ -263,30 +263,30 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
             onChange={(e) => setBarcodeInput(e.target.value)}
             placeholder="Barcode (ex: RUN-101) *"
             required
-            className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+            className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
           />
           <input
             type="text"
             value={bibInput}
             onChange={(e) => setBibInput(e.target.value)}
             placeholder="رقم الصدر (اختياري)"
-            className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+            className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
           />
           <input
             type="text"
             value={sizeInput}
             onChange={(e) => setSizeInput(e.target.value)}
             placeholder="المقاس (مثال: L)"
-            className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
+            className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3.5 py-2.5 text-sm text-slate-900 dark:text-white min-h-[44px]"
           />
-          <div className="flex gap-2">
+          <div className="flex gap-2 min-w-0">
             <input
               type="tel"
               dir="ltr"
               value={phoneInput}
               onChange={(e) => setPhoneInput(e.target.value)}
               placeholder="الموبايل"
-              className="flex-1 min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
+              className="flex-1 min-w-0 w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2.5 text-sm font-ascii-mono text-slate-900 dark:text-white min-h-[44px]"
             />
             <button
               type="submit"
@@ -363,22 +363,22 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-w-0">
+                  <div className="min-w-0">
                     <div className="text-xs font-bold text-slate-700 dark:text-neutral-300 mb-2">
                       أعمدة البحث السريع:
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 min-w-0">
                       {headers.map((h) => (
                         <label
                           key={h}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-neutral-800 px-3 py-1.5 text-xs font-semibold cursor-pointer min-h-[38px]"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-neutral-800 px-3 py-1.5 text-xs font-semibold cursor-pointer min-h-[38px] max-w-full overflow-x-auto whitespace-nowrap"
                         >
                           <input
                             type="checkbox"
                             checked={searchFields.includes(h)}
                             onChange={() => toggleSelection(searchFields, setSearchFields, h)}
-                            className="w-4 h-4 accent-emerald-600 rounded"
+                            className="w-4 h-4 accent-emerald-600 rounded shrink-0"
                           />
                           <span>{h}</span>
                         </label>
@@ -386,21 +386,21 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
                     </div>
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xs font-bold text-slate-700 dark:text-neutral-300 mb-2">
                       البيانات الظاهرة للمنظم عند المسح:
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap gap-2 min-w-0">
                       {headers.map((h) => (
                         <label
                           key={h}
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-neutral-800 px-3 py-1.5 text-xs font-semibold cursor-pointer min-h-[38px]"
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-neutral-800 px-3 py-1.5 text-xs font-semibold cursor-pointer min-h-[38px] max-w-full overflow-x-auto whitespace-nowrap"
                         >
                           <input
                             type="checkbox"
                             checked={displayFields.includes(h)}
                             onChange={() => toggleSelection(displayFields, setDisplayFields, h)}
-                            className="w-4 h-4 accent-emerald-600 rounded"
+                            className="w-4 h-4 accent-emerald-600 rounded shrink-0"
                           />
                           <span>{h}</span>
                         </label>
@@ -441,17 +441,17 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
       </section>
 
       {/* Participants Directory for This Event */}
-      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-4 min-w-0 overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 min-w-0">
           <h3 className="text-base font-bold text-slate-900 dark:text-white">
             الأشخاص المسجلون في هذا الإيفنت ({filteredParticipants.length})
           </h3>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full lg:w-auto">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 w-full lg:w-auto min-w-0">
             {availableColumns.length > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <label
                   htmlFor="event-name-field-select"
-                  className="text-xs font-bold text-slate-700 dark:text-neutral-300 whitespace-nowrap"
+                  className="text-xs font-bold text-slate-700 dark:text-neutral-300 whitespace-nowrap shrink-0"
                 >
                   عمود الاسم:
                 </label>
@@ -461,7 +461,7 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
                   disabled={savingNameField}
                   value={event.nameField ?? ''}
                   onChange={(e) => void handleChangeEventNameField(e.target.value)}
-                  className="rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white min-h-[44px] disabled:opacity-50"
+                  className="w-full sm:w-auto min-w-0 max-w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black px-3 py-2 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white min-h-[44px] disabled:opacity-50"
                 >
                   <option value="">تحديد تلقائي (افتراضي)</option>
                   {availableColumns.map((col) => (
@@ -473,14 +473,14 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
               </div>
             )}
 
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full sm:w-64 min-w-0">
               <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="بحث بالاسم، الباركود، الموبايل..."
-                className="w-full rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-10 pl-3 py-2 text-sm text-slate-900 dark:text-white min-h-[44px]"
+                className="w-full min-w-0 rounded-xl border border-slate-300 dark:border-neutral-700 bg-slate-50 dark:bg-black pr-10 pl-3 py-2 text-sm text-slate-900 dark:text-white min-h-[44px]"
               />
             </div>
           </div>
@@ -506,10 +506,10 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
               return (
                 <div
                   key={p.barcode}
-                  className="p-3.5 sm:px-4 bg-white dark:bg-neutral-950 flex items-center justify-between gap-3"
+                  className="p-3.5 sm:px-4 bg-white dark:bg-neutral-950 flex items-center justify-between gap-3 min-w-0"
                 >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
                       <span className="text-sm font-bold text-slate-900 dark:text-white">
                         {pName}
                       </span>
@@ -521,7 +521,7 @@ export const EventParticipantsTab: React.FC<EventParticipantsTabProps> = ({
                       </span>
                     </div>
                     {details && (
-                      <div className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5 truncate">
+                      <div className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5 overflow-x-auto whitespace-nowrap">
                         {details}
                       </div>
                     )}

@@ -335,3 +335,41 @@ test('columnIndexToLetter, formula TRIM/ISBLANK accuracy, column reordering, and
   assert.equal(vipStyles[0], undefined);
 });
 
+test('applyColorRules safely bounds ranges to sheet.getMaxRows()/getMaxColumns() without hardcoding 1000/11', () => {
+  const shortCols: SheetsColumnMapping[] = [
+    { id: 'c1', header: 'Ticket', sourceType: 'barcode' },
+    { id: 'c2', header: 'Name', sourceType: 'participant_name' },
+    { id: 'c3', header: 'Notes', sourceType: 'static_text', staticValue: 'OK' },
+  ];
+
+  const compiledNoStatus = compileColorRulesForAppsScript(shortCols, undefined, 2);
+  assert.equal(compiledNoStatus[0].numCols, 3);
+
+  const sanitized = compileColorRulesForAppsScript(
+    shortCols,
+    [
+      {
+        id: 'bad_hex',
+        name: 'Sanitized',
+        enabled: true,
+        mode: 'conditions',
+        logic: 'AND',
+        conditions: [{ id: 'x', columnId: 'c1', operator: 'is_not_empty' }],
+        requireNonEmptyRow: true,
+        backgroundColor: 'not-a-color',
+        fontColor: 'bad',
+        targetScope: 'row',
+      },
+    ],
+    2
+  );
+  assert.equal(sanitized[0].backgroundColor, '#B8E0B8');
+  assert.equal(sanitized[0].fontColor, undefined);
+
+  const code = generateGoogleAppsScriptCode('sec', shortCols);
+  assert.equal(code.includes('sheet.getMaxRows()'), true);
+  assert.equal(code.includes('sheet.getMaxColumns()'), true);
+  assert.equal(code.includes('Math.max(sheet.getLastRow(), 1000)'), false);
+  assert.equal(code.includes('Math.max(totalCols || 1, 11)'), false);
+});
+

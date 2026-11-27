@@ -464,6 +464,14 @@ function escapeFormulaText(value: string): string {
   return value.replaceAll('"', '""');
 }
 
+function sanitizeHexColor(value: string | undefined, fallback: string): string {
+  const clean = (value ?? '').trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(clean) || /^#[0-9A-Fa-f]{3}$/.test(clean)) {
+    return clean.toUpperCase();
+  }
+  return fallback;
+}
+
 export function buildDefaultColorRules(columns: SheetsColumnMapping[]): SheetsColorRule[] {
   const statusCols = columns.filter((c) => c.sourceType === 'item_status');
   const statusColIds = statusCols.map((c) => c.id);
@@ -715,13 +723,14 @@ export function compileColorRulesForAppsScript(
   if (colorRules === undefined) {
     const hasStatusCols = columns.some((c) => c.sourceType === 'item_status');
     if (!hasStatusCols) {
+      const colSpan = Math.max(columns.length, 1);
       return [
         {
           name: 'الكل متسلّم (أخضر)',
           formula: `=AND(NOT(ISBLANK($A${startRow})),TRIM($A${startRow})<>"",TRIM($E${startRow})="Delivered",TRIM($I${startRow})="Delivered")`,
           backgroundColor: '#B8E0B8',
           startColIndex: 1,
-          numCols: Math.max(columns.length, 11),
+          numCols: colSpan,
         },
         {
           name: 'تسليم جزئي (أصفر فاقع)',
@@ -730,14 +739,14 @@ export function compileColorRulesForAppsScript(
           fontColor: '#000000',
           bold: true,
           startColIndex: 1,
-          numCols: Math.max(columns.length, 11),
+          numCols: colSpan,
         },
         {
           name: 'لم يُسلَّم أي شيء (أحمر)',
           formula: `=AND(NOT(ISBLANK($A${startRow})),TRIM($A${startRow})<>"",TRIM($E${startRow})<>"Delivered",TRIM($I${startRow})<>"Delivered")`,
           backgroundColor: '#F5B3B3',
           startColIndex: 1,
-          numCols: Math.max(columns.length, 11),
+          numCols: colSpan,
         },
       ];
     }
@@ -762,11 +771,12 @@ export function compileColorRulesForAppsScript(
       numCols = 1;
     }
 
+    const safeFont = rule.fontColor ? sanitizeHexColor(rule.fontColor, '') : '';
     compiled.push({
       name: rule.name,
       formula,
-      backgroundColor: rule.backgroundColor || '#B8E0B8',
-      ...(rule.fontColor ? { fontColor: rule.fontColor } : {}),
+      backgroundColor: sanitizeHexColor(rule.backgroundColor, '#B8E0B8'),
+      ...(safeFont ? { fontColor: safeFont } : {}),
       ...(rule.bold ? { bold: true } : {}),
       startColIndex,
       numCols,
@@ -1079,16 +1089,22 @@ function applyColorRules(sheet, totalCols, rulesToApply) {
     return;
   }
 
-  const maxRow = Math.max(sheet.getLastRow(), 1000);
-  const dataRowCount = Math.max(maxRow - 1, 1);
-  const maxColCount = Math.max(totalCols || 1, 11);
+  const sheetMaxRows = Math.max(sheet.getMaxRows(), sheet.getLastRow(), 2);
+  const sheetMaxCols = Math.max(sheet.getMaxColumns(), 1);
+  const dataRowCount = Math.max(sheetMaxRows - 1, 1);
+  const defaultSpanCols = Math.min(Math.max(totalCols || sheetMaxCols, 1), sheetMaxCols);
   const built = [];
 
   for (let i = 0; i < activeRules.length; i++) {
     const cfg = activeRules[i];
     if (!cfg || !cfg.formula || !cfg.backgroundColor) continue;
-    const startCol = cfg.startColIndex >= 1 ? cfg.startColIndex : 1;
-    const numCols = cfg.numCols >= 1 ? Math.min(cfg.numCols, Math.max(maxColCount - startCol + 1, 1)) : maxColCount;
+    const startCol = Math.min(
+      Math.max(cfg.startColIndex >= 1 ? cfg.startColIndex : 1, 1),
+      sheetMaxCols
+    );
+    const maxAvailCols = Math.max(sheetMaxCols - startCol + 1, 1);
+    const requestedCols = cfg.numCols >= 1 ? cfg.numCols : defaultSpanCols;
+    const numCols = Math.max(1, Math.min(requestedCols, maxAvailCols));
     const targetRange = sheet.getRange(2, startCol, dataRowCount, numCols);
     const builder = SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied(cfg.formula)

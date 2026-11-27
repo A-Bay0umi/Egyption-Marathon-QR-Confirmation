@@ -344,6 +344,16 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
     setColumns((prev) => prev.filter((c) => c.id !== colId));
   };
 
+  const handleEnsureDefaultColumns = (): SheetsColumnMapping[] => {
+    if (columns.length > 0) return columns;
+    const nextCols = buildDefaultSheetsColumns(event, availableParticipantFields);
+    setColumns(nextCols);
+    setCodeVisible(true);
+    setSaveError(null);
+    setSaveMessage(null);
+    return nextCols;
+  };
+
   const handleLoadDefaults = () => {
     const nextCols = buildDefaultSheetsColumns(event, availableParticipantFields);
     setColumns(nextCols);
@@ -351,6 +361,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
       setColorRules(buildDefaultColorRules(nextCols));
       setColorRulesTouched(true);
     }
+    setCodeVisible(true);
     setSaveError(null);
     setSaveMessage(null);
   };
@@ -402,8 +413,12 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
       });
       setCodeVisible(true);
       setSaveMessage('تم حفظ أعمدة الشيت وقواعد التلوين وتحديث كود Google Apps Script بنجاح.');
-    } catch {
-      setSaveError('تعذر حفظ إعدادات الشيت في قاعدة البيانات.');
+    } catch (err) {
+      setSaveError(
+        err instanceof Error
+          ? `تعذر حفظ إعدادات الشيت في قاعدة البيانات: ${err.message}`
+          : 'تعذر حفظ إعدادات الشيت في قاعدة البيانات.'
+      );
     } finally {
       setSaving(false);
     }
@@ -903,6 +918,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
         columns={columns}
         rules={colorRules}
         onChangeRules={handleChangeColorRules}
+        onEnsureColumns={handleEnsureDefaultColumns}
       />
 
       {/* Save & Generate Section */}
@@ -952,7 +968,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                 كود Google Apps Script الجاهز ({columns.length} عمود)
               </h2>
               <p className="text-xs text-slate-500 dark:text-neutral-400 mt-0.5">
-                1. افتح Google Sheet ← Extensions ← Apps Script · 2. الصق الكود واحفظه · 3. Deploy ← New deployment ← Web app (Anyone) وضع الرابط بالأعلى.
+                1. افتح Google Sheet ← Extensions ← Apps Script · 2. الصق الكود واحفظه · 3. للربط الأول: Deploy ← New deployment ← Web app (Anyone). ولأي تحديث جديد: Deploy ← Manage deployments ← تعديل ← اختر New version ثم Deploy.
               </p>
             </div>
 

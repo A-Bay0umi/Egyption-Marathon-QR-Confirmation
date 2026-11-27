@@ -33,6 +33,7 @@ interface SheetsColorRulesSectionProps {
   columns: SheetsColumnMapping[];
   rules: SheetsColorRule[];
   onChangeRules: (next: SheetsColorRule[]) => void;
+  onEnsureColumns?: () => SheetsColumnMapping[];
 }
 
 const PRESET_COLOR_SWATCHES: Array<{ label: string; bg: string; font?: string; bold?: boolean }> = [
@@ -60,10 +61,19 @@ function createConditionId(): string {
   return `cond_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
 }
 
+function normalizeHexInput(val: string, fallback: string): string {
+  const clean = val.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(clean) || /^#[0-9A-Fa-f]{3}$/.test(clean)) {
+    return clean.toUpperCase();
+  }
+  return fallback;
+}
+
 export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = ({
   columns,
   rules,
   onChangeRules,
+  onEnsureColumns,
 }) => {
   const statusColumns = useMemo(
     () =>
@@ -164,9 +174,19 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
     setConditions((prev) => (prev.length > 1 ? prev.filter((c) => c.id !== condId) : prev));
   };
 
+  const resolveCondColId = (colId: string, colsList = columns): string => {
+    if (colId && colsList.some((col) => col.id === colId)) return colId;
+    return colsList[0]?.id ?? '';
+  };
+
   const handleLoadDefaultTrio = () => {
     setFormError(null);
-    const defaults = buildDefaultColorRules(columns);
+    const activeCols = columns.length > 0 ? columns : onEnsureColumns?.() ?? [];
+    if (activeCols.length === 0) {
+      setFormError('أضف أعمدة الشيت أولاً لتتمكن من تطبيق قواعد التلوين.');
+      return;
+    }
+    const defaults = buildDefaultColorRules(activeCols);
     onChangeRules(defaults);
   };
 
@@ -179,7 +199,7 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
     setFormError(null);
 
     if (columns.length === 0) {
-      setFormError('أضف أعمدة الشيت أولاً لتتمكن من بناء قواعد التلوين.');
+      setFormError('أضف أعمدة الشيت أولاً (أو اضغط "تطبيق القواعد الافتراضية") لبناء قواعد التلوين.');
       return;
     }
 
@@ -189,6 +209,10 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
     }
 
     let computedName = ruleName.trim();
+    const resolvedConds: SheetsColorCondition[] = conditions
+      .map((c) => ({ ...c, columnId: resolveCondColId(c.columnId) }))
+      .filter((c) => Boolean(c.columnId));
+
     if (mode === 'preset_delivery') {
       if (statusColumns.length === 0) {
         setFormError('أضف عمود "حالة تسليم (Status)" أولاً لاستخدام القوالب الجاهزة.');
@@ -207,14 +231,11 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
             : 'لم يُسلَّم أي شيء';
       }
     } else if (mode === 'conditions') {
-      const validConds = conditions.filter((c) =>
-        columns.some((col) => col.id === c.columnId)
-      );
-      if (validConds.length === 0) {
+      if (resolvedConds.length === 0) {
         setFormError('اختر عموداً صحيحاً لشرط التلوين.');
         return;
       }
-      for (const cond of validConds) {
+      for (const cond of resolvedConds) {
         const opDef = OPERATOR_OPTIONS.find((o) => o.value === cond.operator);
         if (opDef?.needsValue && !(cond.value ?? '').trim()) {
           setFormError('اكتب القيمة المطلوبة للمقارنة في الشرط.');
@@ -222,7 +243,7 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
         }
       }
       if (!computedName) {
-        computedName = `شرط مخصص (${validConds.length})`;
+        computedName = `شرط مخصص (${resolvedConds.length})`;
       }
     } else {
       if (!customFormula.trim()) {
@@ -234,10 +255,16 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
       }
     }
 
-    if (targetScope === 'column' && !targetColumnId) {
+    const effectiveTargetColId =
+      targetScope === 'column' ? resolveCondColId(targetColumnId) : '';
+
+    if (targetScope === 'column' && !effectiveTargetColId) {
       setFormError('اختر العمود المراد تلوينه أو اختر تلوين الصف بالكامل.');
       return;
     }
+
+    const safeBg = normalizeHexInput(backgroundColor, '#B8E0B8');
+    const safeFont = fontColor.trim() ? normalizeHexInput(fontColor, '#000000') : '';
 
     const newRule: SheetsColorRule = {
       id: `color_rule_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
@@ -248,10 +275,7 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
         ? { presetType, presetColumnIds: effectivePresetIds }
         : {}),
       logic,
-      conditions:
-        mode === 'conditions'
-          ? conditions.filter((c) => columns.some((col) => col.id === c.columnId))
-          : [],
+      conditions: mode === 'conditions' ? resolvedConds : [],
       ...(mode === 'custom_formula'
         ? {
             customFormula: customFormula.trim().startsWith('=')
@@ -260,11 +284,11 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
           }
         : {}),
       requireNonEmptyRow,
-      backgroundColor,
-      ...(fontColor ? { fontColor } : {}),
+      backgroundColor: safeBg,
+      ...(safeFont ? { fontColor: safeFont } : {}),
       bold,
       targetScope,
-      ...(targetScope === 'column' ? { targetColumnId } : {}),
+      ...(targetScope === 'column' ? { targetColumnId: effectiveTargetColId } : {}),
     };
 
     const nextRules = sortColorRulesByPriority([...rules, newRule]);
@@ -318,7 +342,7 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
         <button
           type="button"
           data-testid="load-default-color-rules-btn"
-          disabled={columns.length === 0}
+          disabled={columns.length === 0 && !onEnsureColumns}
           onClick={handleLoadDefaultTrio}
           className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-bold min-h-[40px] disabled:opacity-40 whitespace-nowrap shrink-0"
         >
@@ -563,7 +587,7 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
                     <div className="md:col-span-4 min-w-0">
                       <select
                         aria-label={`عمود الشرط ${idx + 1}`}
-                        value={cond.columnId}
+                        value={resolveCondColId(cond.columnId)}
                         onChange={(e) =>
                           handleUpdateCondition(cond.id, { columnId: e.target.value })
                         }
@@ -756,7 +780,7 @@ export const SheetsColorRulesSection: React.FC<SheetsColorRulesSectionProps> = (
               </label>
               <select
                 id="rule-scope-select"
-                value={targetScope === 'column' ? targetColumnId : '__row__'}
+                value={targetScope === 'column' ? resolveCondColId(targetColumnId) || '__row__' : '__row__'}
                 onChange={(e) => {
                   const v = e.target.value;
                   if (v === '__row__') {

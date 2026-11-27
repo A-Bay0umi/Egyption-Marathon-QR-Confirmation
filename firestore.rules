@@ -42,7 +42,7 @@ service cloud.firestore {
       ]) &&
       data.keys().hasOnly([
         'id', 'name', 'date', 'isActive', 'registrationStatus', 'registrationOpensAt', 'registrationClosesAt',
-        'sheetsWebhookUrl', 'sheetsWebhookSecret', 'sheetsAutoSync', 'sheetsColumns',
+        'sheetsWebhookUrl', 'sheetsWebhookSecret', 'sheetsAutoSync', 'sheetsColumns', 'sheetsColorRules',
         'deliverableItems', 'displayFields', 'displayLabels', 'nameField', 'searchFields', 'totalParticipants', 'ownerUid', 'createdAt'
       ]) &&
       isValidId(data.id) &&
@@ -56,6 +56,7 @@ service cloud.firestore {
       (!('sheetsWebhookSecret' in data) || (data.sheetsWebhookSecret is string && data.sheetsWebhookSecret.size() <= 128)) &&
       (!('sheetsAutoSync' in data) || data.sheetsAutoSync is bool) &&
       (!('sheetsColumns' in data) || (data.sheetsColumns is list && data.sheetsColumns.size() <= 40 && (data.sheetsColumns.size() == 0 || data.sheetsColumns[0] is map))) &&
+      (!('sheetsColorRules' in data) || (data.sheetsColorRules is list && data.sheetsColorRules.size() <= 20 && (data.sheetsColorRules.size() == 0 || data.sheetsColorRules[0] is map))) &&
       data.deliverableItems is list && data.deliverableItems.size() <= 20 &&
       data.displayFields is list && data.displayFields.size() <= 20 &&
       (!('displayLabels' in data) || data.displayLabels is map) &&
@@ -150,7 +151,7 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'name', 'date', 'isActive', 'registrationStatus', 'registrationOpensAt', 'registrationClosesAt',
-          'sheetsWebhookUrl', 'sheetsWebhookSecret', 'sheetsAutoSync', 'sheetsColumns',
+          'sheetsWebhookUrl', 'sheetsWebhookSecret', 'sheetsAutoSync', 'sheetsColumns', 'sheetsColorRules',
           'deliverableItems', 'displayFields', 'displayLabels', 'nameField', 'searchFields', 'totalParticipants'
         ]);
       allow delete: if isValidId(eventId);

@@ -39,6 +39,7 @@ import type {
   MarathonEvent,
   Organizer,
   Participant,
+  SheetsColorRule,
   SheetsColumnMapping,
 } from './types';
 
@@ -103,6 +104,9 @@ function mapEventDoc(id: string, data: Record<string, unknown>): MarathonEvent {
     sheetsAutoSync: typeof data.sheetsAutoSync === 'boolean' ? data.sheetsAutoSync : undefined,
     sheetsColumns: Array.isArray(data.sheetsColumns)
       ? (data.sheetsColumns as SheetsColumnMapping[])
+      : undefined,
+    sheetsColorRules: Array.isArray(data.sheetsColorRules)
+      ? (data.sheetsColorRules as SheetsColorRule[])
       : undefined,
     deliverableItems: Array.isArray(data.deliverableItems)
       ? (data.deliverableItems as DeliverableItem[])
@@ -542,6 +546,7 @@ export async function updateEventDoc(
       | 'sheetsWebhookSecret'
       | 'sheetsAutoSync'
       | 'sheetsColumns'
+      | 'sheetsColorRules'
     >
   >
 ): Promise<void> {
@@ -569,6 +574,48 @@ export async function updateEventDoc(
       });
     } else {
       cleanPatch.sheetsColumns = deleteField();
+    }
+  }
+  if ('sheetsColorRules' in patch) {
+    if (Array.isArray(patch.sheetsColorRules)) {
+      cleanPatch.sheetsColorRules = patch.sheetsColorRules.slice(0, 20).map((rule) => {
+        const cleanRule: Record<string, unknown> = {
+          id: rule.id,
+          name: rule.name.trim() || 'قاعدة تلوين',
+          enabled: rule.enabled !== false,
+          mode: rule.mode,
+          logic: rule.logic === 'OR' ? 'OR' : 'AND',
+          conditions: Array.isArray(rule.conditions)
+            ? rule.conditions.slice(0, 15).map((cond) => {
+                const c: Record<string, string> = {
+                  id: cond.id,
+                  columnId: cond.columnId,
+                  operator: cond.operator,
+                };
+                if (cond.value !== undefined && cond.value !== '') {
+                  c.value = cond.value;
+                }
+                return c;
+              })
+            : [],
+          requireNonEmptyRow: rule.requireNonEmptyRow !== false,
+          backgroundColor: rule.backgroundColor || '#B8E0B8',
+          bold: Boolean(rule.bold),
+          targetScope: rule.targetScope === 'column' ? 'column' : 'row',
+        };
+        if (rule.presetType) cleanRule.presetType = rule.presetType;
+        if (Array.isArray(rule.presetColumnIds) && rule.presetColumnIds.length > 0) {
+          cleanRule.presetColumnIds = rule.presetColumnIds;
+        }
+        if (rule.customFormula?.trim()) cleanRule.customFormula = rule.customFormula.trim();
+        if (rule.fontColor?.trim()) cleanRule.fontColor = rule.fontColor.trim();
+        if (rule.targetScope === 'column' && rule.targetColumnId) {
+          cleanRule.targetColumnId = rule.targetColumnId;
+        }
+        return cleanRule;
+      });
+    } else {
+      cleanPatch.sheetsColorRules = deleteField();
     }
   }
   if ('nameField' in patch) {

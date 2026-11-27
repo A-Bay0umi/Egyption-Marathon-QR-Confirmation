@@ -20,4 +20,5 @@ test('firestore.rules enforces default deny and eight pillars', () => {
   assert.match(rules, /sheetsWebhookUrl/);
   assert.match(rules, /sheetsAutoSync/);
   assert.match(rules, /sheetsColumns/);
+  assert.match(rules, /sheetsColorRules/);
 });

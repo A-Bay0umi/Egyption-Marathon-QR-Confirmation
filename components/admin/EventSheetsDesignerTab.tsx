@@ -16,7 +16,10 @@ import {
 import { updateEventDoc } from '@/lib/firestore-store';
 import { extractParticipantDisplayName, normalizeBarcode } from '@/lib/marathon-logic';
 import {
+  buildDefaultColorRules,
   buildDefaultSheetsColumns,
+  columnIndexToLetter,
+  evaluateColorRulesForRow,
   formatDeliveryTime12hEn,
   generateGoogleAppsScriptCode,
   isValidAppsScriptUrl,
@@ -25,9 +28,11 @@ import type {
   MarathonEvent,
   Organizer,
   Participant,
+  SheetsColorRule,
   SheetsColumnMapping,
   SheetsColumnSourceType,
 } from '@/lib/types';
+import { SheetsColorRulesSection } from './SheetsColorRulesSection';
 
 interface EventSheetsDesignerTabProps {
   event: MarathonEvent;
@@ -145,6 +150,14 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
     Array.isArray(event.sheetsColumns) ? event.sheetsColumns : []
   );
 
+  // User-designed row/column conditional color rules
+  const [colorRules, setColorRules] = useState<SheetsColorRule[]>(() =>
+    Array.isArray(event.sheetsColorRules) ? event.sheetsColorRules : []
+  );
+  const [colorRulesTouched, setColorRulesTouched] = useState(() =>
+    Array.isArray(event.sheetsColorRules)
+  );
+
   // New column creator form state
   const [newHeader, setNewHeader] = useState('');
   const [creatorCategory, setCreatorCategory] = useState<CreatorCategory>('excel');
@@ -174,11 +187,48 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
     return map;
   }, [organizers]);
 
-  const sampleParticipant = participants[0];
+  const previewSamples = useMemo(() => {
+    if (participants.length === 0) return [];
+    const picked: Participant[] = [];
+    const seenBuckets = new Set<string>();
+    const itemIds = event.deliverableItems.map((i) => i.id);
+
+    for (const p of participants) {
+      const deliveredCount = itemIds.filter((id) => p.deliveries?.[id]?.status === 'delivered').length;
+      const bucket =
+        itemIds.length === 0
+          ? 'any'
+          : deliveredCount === itemIds.length
+          ? 'all'
+          : deliveredCount > 0
+          ? 'partial'
+          : 'none';
+      if (!seenBuckets.has(bucket)) {
+        seenBuckets.add(bucket);
+        picked.push(p);
+      }
+      if (picked.length >= 4) break;
+    }
+
+    if (picked.length === 0 && participants[0]) {
+      picked.push(participants[0]);
+    }
+    return picked;
+  }, [participants, event.deliverableItems]);
+
+  const effectiveColorRulesForPreview = useMemo(() => {
+    if (colorRules.length > 0 || colorRulesTouched) return colorRules;
+    return buildDefaultColorRules(columns);
+  }, [colorRules, colorRulesTouched, columns]);
 
   const generatedCode = useMemo(
-    () => generateGoogleAppsScriptCode(event.sheetsWebhookSecret, columns),
-    [event.sheetsWebhookSecret, columns]
+    () =>
+      generateGoogleAppsScriptCode(
+        event.sheetsWebhookSecret,
+        columns,
+        colorRulesTouched || colorRules.length > 0 ? colorRules : undefined
+      ),
+    [event.sheetsWebhookSecret, columns, colorRules, colorRulesTouched]
   );
 
   const handleSelectExcelOption = (val: string) => {
@@ -295,7 +345,12 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
   };
 
   const handleLoadDefaults = () => {
-    setColumns(buildDefaultSheetsColumns(event, availableParticipantFields));
+    const nextCols = buildDefaultSheetsColumns(event, availableParticipantFields);
+    setColumns(nextCols);
+    if (colorRules.length === 0) {
+      setColorRules(buildDefaultColorRules(nextCols));
+      setColorRulesTouched(true);
+    }
     setSaveError(null);
     setSaveMessage(null);
   };
@@ -304,6 +359,13 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
     setColumns([]);
     setSaveError(null);
     setSaveMessage(null);
+  };
+
+  const handleChangeColorRules = (next: SheetsColorRule[]) => {
+    setColorRules(next);
+    setColorRulesTouched(true);
+    setSaveMessage(null);
+    setSaveError(null);
   };
 
   const handleSaveAndGenerateCode = async () => {
@@ -336,9 +398,10 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
         sheetsWebhookUrl: trimmedUrl,
         sheetsAutoSync: autoSyncEnabled,
         sheetsColumns: columns,
+        ...(colorRulesTouched ? { sheetsColorRules: colorRules } : {}),
       });
       setCodeVisible(true);
-      setSaveMessage('تم حفظ أعمدة الشيت وتحديث كود Google Apps Script بنجاح.');
+      setSaveMessage('تم حفظ أعمدة الشيت وقواعد التلوين وتحديث كود Google Apps Script بنجاح.');
     } catch {
       setSaveError('تعذر حفظ إعدادات الشيت في قاعدة البيانات.');
     } finally {
@@ -721,8 +784,8 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                         key={col.id}
                         className="border border-amber-600/40 px-4 py-3 text-center align-middle whitespace-nowrap font-bold text-black"
                       >
-                        <span className="tabular-nums opacity-60 mr-1.5 text-[10px]">
-                          {idx + 1}.
+                        <span className="tabular-nums opacity-65 mr-1.5 text-[10px] font-ascii-mono">
+                          {columnIndexToLetter(idx)} ·
                         </span>
                         <span>{col.header || `Column ${idx + 1}`}</span>
                       </th>
@@ -730,16 +793,45 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="bg-white dark:bg-neutral-950 text-slate-800 dark:text-neutral-200">
-                    {columns.map((col) => (
-                      <td
-                        key={col.id}
-                        className="border border-slate-200 dark:border-neutral-800 px-4 py-2.5 text-center align-middle whitespace-nowrap font-ascii-mono tabular-nums"
+                  {(previewSamples.length > 0 ? previewSamples : [undefined]).map((sample, rowIdx) => {
+                    const rowValues = columns.map((col) =>
+                      previewCellValue(col, sample, event, boothByOrgId)
+                    );
+                    const cellStyles = evaluateColorRulesForRow(
+                      effectiveColorRulesForPreview,
+                      columns,
+                      rowValues
+                    );
+
+                    return (
+                      <tr
+                        key={sample?.barcode ?? `demo_${rowIdx}`}
+                        className="bg-white dark:bg-neutral-950 text-slate-800 dark:text-neutral-200"
                       >
-                        {previewCellValue(col, sampleParticipant, event, boothByOrgId) || '—'}
-                      </td>
-                    ))}
-                  </tr>
+                        {columns.map((col, colIdx) => {
+                          const cellStyle = cellStyles[colIdx];
+                          return (
+                            <td
+                              key={col.id}
+                              style={
+                                cellStyle
+                                  ? {
+                                      backgroundColor: cellStyle.backgroundColor,
+                                      color: cellStyle.color || '#000000',
+                                      fontWeight: cellStyle.fontWeight ?? 'normal',
+                                    }
+                                  : undefined
+                              }
+                              title={cellStyle?.ruleName}
+                              className="border border-slate-200 dark:border-neutral-800 px-4 py-2.5 text-center align-middle whitespace-nowrap font-ascii-mono tabular-nums"
+                            >
+                              {rowValues[colIdx] || '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -752,8 +844,8 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                   className="p-3 bg-white dark:bg-neutral-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0"
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <span className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 flex items-center justify-center text-xs font-bold font-ascii-mono tabular-nums text-slate-700 dark:text-neutral-200 shrink-0">
-                      {idx + 1}
+                    <span className="w-8 h-7 rounded-lg bg-slate-100 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 flex items-center justify-center text-xs font-bold font-ascii-mono tabular-nums text-slate-700 dark:text-neutral-200 shrink-0">
+                      {columnIndexToLetter(idx)}
                     </span>
 
                     <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-2 gap-2 items-center">
@@ -804,7 +896,17 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
             </div>
           </>
         )}
+      </section>
 
+      {/* 4. Dynamic Conditional Formatting Color Rules */}
+      <SheetsColorRulesSection
+        columns={columns}
+        rules={colorRules}
+        onChangeRules={handleChangeColorRules}
+      />
+
+      {/* Save & Generate Section */}
+      <section className="rounded-2xl border border-slate-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-4 sm:p-5 space-y-3 min-w-0 overflow-hidden">
         {saveError && (
           <p className="text-xs font-bold text-red-600 dark:text-red-400">{saveError}</p>
         )}
@@ -814,7 +916,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
           </p>
         )}
 
-        <div className="flex flex-wrap items-center gap-3 pt-1">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             disabled={saving}
@@ -823,7 +925,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-black px-5 py-3 text-xs sm:text-sm font-bold min-h-[44px] disabled:opacity-50 whitespace-nowrap"
           >
             <Code2 className="w-4 h-4" />
-            <span>{saving ? 'جاري الحفظ...' : 'حفظ وتوليد كود Google Apps Script'}</span>
+            <span>{saving ? 'جاري الحفظ...' : 'حفظ الأعمدة والألوان وتوليد كود Apps Script'}</span>
           </button>
 
           {columns.length > 0 && (

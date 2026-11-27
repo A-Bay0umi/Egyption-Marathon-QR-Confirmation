@@ -31,6 +31,44 @@ export interface SheetsColumnMapping {
   staticValue?: string;
 }
 
+export type SheetsRuleOperator =
+  | 'is_delivered'
+  | 'is_not_delivered'
+  | 'equals'
+  | 'not_equals'
+  | 'contains'
+  | 'not_contains'
+  | 'is_empty'
+  | 'is_not_empty';
+
+export interface SheetsColorCondition {
+  id: string;
+  columnId: string;
+  operator: SheetsRuleOperator;
+  value?: string;
+}
+
+export type SheetsColorRuleMode = 'preset_delivery' | 'conditions' | 'custom_formula';
+export type SheetsDeliveryPresetType = 'all_delivered' | 'partial_delivered' | 'none_delivered';
+
+export interface SheetsColorRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  mode: SheetsColorRuleMode;
+  presetType?: SheetsDeliveryPresetType;
+  presetColumnIds?: string[];
+  logic: 'AND' | 'OR';
+  conditions: SheetsColorCondition[];
+  customFormula?: string;
+  requireNonEmptyRow?: boolean;
+  backgroundColor: string;
+  fontColor?: string;
+  bold?: boolean;
+  targetScope: 'row' | 'column';
+  targetColumnId?: string;
+}
+
 export interface MarathonEvent {
   id: string;
   name: string;
@@ -43,6 +81,7 @@ export interface MarathonEvent {
   sheetsWebhookSecret?: string;
   sheetsAutoSync?: boolean;
   sheetsColumns?: SheetsColumnMapping[];
+  sheetsColorRules?: SheetsColorRule[];
   deliverableItems: DeliverableItem[];
   displayFields: string[];
   displayLabels?: Record<string, string>;

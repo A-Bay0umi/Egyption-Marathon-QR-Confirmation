@@ -2,15 +2,28 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildAppsScriptPayload,
+  buildDefaultColorRules,
   buildDefaultSheetsColumns,
+  buildSheetsRuleFormula,
+  checkColorRulesPriority,
+  columnIndexToLetter,
+  compileColorRulesForAppsScript,
   computeEventSheetsSnapshot,
   computeParticipantDeliveriesFingerprint,
+  evaluateColorRulesForRow,
   formatDeliveryTime12hEn,
   generateGoogleAppsScriptCode,
   getEffectiveSheetsColumns,
   isValidAppsScriptUrl,
+  sortColorRulesByPriority,
 } from './sheets-sync';
-import type { MarathonEvent, Organizer, Participant, SheetsColumnMapping } from './types';
+import type {
+  MarathonEvent,
+  Organizer,
+  Participant,
+  SheetsColorRule,
+  SheetsColumnMapping,
+} from './types';
 
 test('formatDeliveryTime12hEn formats Africa/Cairo time with seconds in 12-hour English digits', () => {
   // 2026-11-20T12:05:33Z = 14:05:33 Cairo = 02:05:33 PM
@@ -161,7 +174,7 @@ test('buildDefaultSheetsColumns and getEffectiveSheetsColumns resolve custom vs 
   );
 });
 
-test('generateGoogleAppsScriptCode preserves conditional formatting, extends >331 range, and flushes batch setValues', () => {
+test('generateGoogleAppsScriptCode preserves conditional formatting and embeds dynamic SHEET_COLOR_RULES', () => {
   const customCols: SheetsColumnMapping[] = [
     { id: 'c1', header: 'Ticket No', sourceType: 'barcode' },
     { id: 'c2', header: 'Shirt Size', sourceType: 'dynamic_field', fieldKey: 'Size' },
@@ -183,8 +196,12 @@ test('generateGoogleAppsScriptCode preserves conditional formatting, extends >33
   // Required conditional-formatting-safe operations
   assert.equal(code.includes('.clearContent()'), true);
   assert.equal(code.includes('.setValues(outputRows)'), true);
-  assert.equal(code.includes('getConditionalFormatRules()'), true);
-  assert.equal(code.includes('setConditionalFormatRules('), true);
+  assert.equal(code.includes('function applyColorRules(sheet, totalCols, rulesToApply)'), true);
+  assert.equal(code.includes('applyColorRules(sheet, totalCols, activeColorRules);'), true);
+  assert.equal(code.includes('sheet.setConditionalFormatRules(built);'), true);
+  assert.equal(code.includes('#B8E0B8'), true);
+  assert.equal(code.includes('#FFFF00'), true);
+  assert.equal(code.includes('#F5B3B3'), true);
   assert.equal(code.includes("return 'Delivered';"), true);
   assert.equal(code.includes("return 'Not Delivered';"), true);
   assert.equal(code.includes('SpreadsheetApp.flush();'), true);
@@ -194,3 +211,127 @@ test('generateGoogleAppsScriptCode preserves conditional formatting, extends >33
   assert.equal(code.includes(".setHorizontalAlignment('center')"), true);
   assert.equal(code.includes(".setVerticalAlignment('middle')"), true);
 });
+
+test('columnIndexToLetter, formula TRIM/ISBLANK accuracy, column reordering, and priority sorting', () => {
+  assert.equal(columnIndexToLetter(0), 'A');
+  assert.equal(columnIndexToLetter(4), 'E');
+  assert.equal(columnIndexToLetter(8), 'I');
+  assert.equal(columnIndexToLetter(25), 'Z');
+  assert.equal(columnIndexToLetter(26), 'AA');
+
+  const cols: SheetsColumnMapping[] = [
+    { id: 'c_tkt', header: 'Tkt Number', sourceType: 'barcode' },
+    { id: 'c_name', header: 'Full Name', sourceType: 'participant_name' },
+    { id: 'c_cat', header: 'Category', sourceType: 'dynamic_field', fieldKey: 'Category' },
+    { id: 'c_bib_st', header: 'BIB Status', sourceType: 'item_status', itemId: 'bib' },
+    { id: 'c_shirt_st', header: 'T-Shirt Status', sourceType: 'item_status', itemId: 'tshirt' },
+  ];
+
+  const rules = buildDefaultColorRules(cols);
+  assert.equal(rules.length, 3);
+  assert.equal(checkColorRulesPriority(rules).hasIssue, false);
+
+  // Formula uses TRIM and ISBLANK anchor guard and dynamic column letters D and E
+  const allFormula = buildSheetsRuleFormula(rules[0], cols, 2);
+  assert.equal(
+    allFormula,
+    '=AND(NOT(ISBLANK($A2)),TRIM($A2)<>"",TRIM($D2)="Delivered",TRIM($E2)="Delivered")'
+  );
+
+  // Dynamic start row support (e.g. row 5)
+  const row5Formula = buildSheetsRuleFormula(rules[0], cols, 5);
+  assert.equal(
+    row5Formula,
+    '=AND(NOT(ISBLANK($A5)),TRIM($A5)<>"",TRIM($D5)="Delivered",TRIM($E5)="Delivered")'
+  );
+
+  // Reordering/inserting a column before status columns recalculates $D2/$E2 -> $E2/$F2 automatically
+  const shiftedCols: SheetsColumnMapping[] = [
+    cols[0],
+    cols[1],
+    { id: 'c_extra', header: 'Bib Num', sourceType: 'dynamic_field', fieldKey: 'Bib Num' },
+    cols[2],
+    cols[3],
+    cols[4],
+  ];
+  const shiftedCompiled = compileColorRulesForAppsScript(shiftedCols, rules, 2);
+  assert.equal(
+    shiftedCompiled[0].formula,
+    '=AND(NOT(ISBLANK($A2)),TRIM($A2)<>"",TRIM($E2)="Delivered",TRIM($F2)="Delivered")'
+  );
+
+  // Priority detector catches putting none_delivered before all_delivered and fixes order
+  const reversed = [rules[2], rules[1], rules[0]];
+  assert.equal(checkColorRulesPriority(reversed).hasIssue, true);
+  const fixed = sortColorRulesByPriority(reversed);
+  assert.equal(fixed[0].presetType, 'all_delivered');
+  assert.equal(fixed[1].presetType, 'partial_delivered');
+  assert.equal(fixed[2].presetType, 'none_delivered');
+
+  // Live preview evaluation matches green / yellow / red AND leaves blank row uncolored
+  const greenStyles = evaluateColorRulesForRow(rules, cols, [
+    'TKT-1',
+    'Sara',
+    'VIP',
+    'Delivered',
+    'Delivered',
+  ]);
+  assert.equal(greenStyles[0]?.backgroundColor, '#B8E0B8');
+
+  const yellowStyles = evaluateColorRulesForRow(rules, cols, [
+    'TKT-2',
+    'Omar',
+    'Standard',
+    'Delivered',
+    'Not Delivered',
+  ]);
+  assert.equal(yellowStyles[0]?.backgroundColor, '#FFFF00');
+  assert.equal(yellowStyles[0]?.color, '#000000');
+  assert.equal(yellowStyles[0]?.fontWeight, 'bold');
+
+  const redStyles = evaluateColorRulesForRow(rules, cols, [
+    'TKT-3',
+    'Ali',
+    'Standard',
+    'Not Delivered',
+    'Not Delivered',
+  ]);
+  assert.equal(redStyles[0]?.backgroundColor, '#F5B3B3');
+
+  const blankRowStyles = evaluateColorRulesForRow(rules, cols, ['', '', '', '', '']);
+  assert.equal(Object.keys(blankRowStyles).length, 0);
+
+  // Multi-condition OR rule scoped to a single column
+  const vipRule: SheetsColorRule = {
+    id: 'r_vip',
+    name: 'VIP Purple',
+    enabled: true,
+    mode: 'conditions',
+    logic: 'OR',
+    conditions: [
+      { id: 'c1', columnId: 'c_cat', operator: 'contains', value: 'VIP' },
+      { id: 'c2', columnId: 'c_bib_st', operator: 'is_delivered' },
+    ],
+    requireNonEmptyRow: true,
+    backgroundColor: '#E1BEE7',
+    fontColor: '#000000',
+    bold: true,
+    targetScope: 'column',
+    targetColumnId: 'c_cat',
+  };
+  const vipFormula = buildSheetsRuleFormula(vipRule, cols, 2);
+  assert.equal(
+    vipFormula,
+    '=AND(NOT(ISBLANK($A2)),TRIM($A2)<>"",OR(ISNUMBER(SEARCH("VIP",TRIM($C2))),TRIM($D2)="Delivered"))'
+  );
+  const vipStyles = evaluateColorRulesForRow([vipRule], cols, [
+    'TKT-9',
+    'Nour',
+    'VIP Gold',
+    'Not Delivered',
+    'Not Delivered',
+  ]);
+  assert.equal(vipStyles[2]?.backgroundColor, '#E1BEE7');
+  assert.equal(vipStyles[0], undefined);
+});
+

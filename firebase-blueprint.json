@@ -16,6 +16,7 @@
         "sheetsWebhookSecret": { "type": "string", "maxLength": 128, "description": "Optional secret token verified by the Google Apps Script webhook." },
         "sheetsAutoSync": { "type": "boolean", "description": "Whether deliveries sync automatically to Google Sheets." },
         "sheetsColumns": { "type": "array", "description": "Bounded custom Google Sheets column mappings (max 40) defining each column header and data source." },
+        "sheetsColorRules": { "type": "array", "description": "Bounded custom Google Sheets conditional formatting rules (max 20) controlling row/column colors." },
         "deliverableItems": { "type": "array", "description": "Bounded list of deliverable kit items (max 20), each optionally referencing dependsOnItemId for sequential chains." },
         "displayFields": { "type": "array", "description": "Bounded list of Excel column names displayed to organizers (max 20)." },
         "displayLabels": { "type": "object", "description": "Optional custom Arabic labels for display fields." },

@@ -433,12 +433,15 @@ export function generateGoogleAppsScriptCode(
         }))
       : [
           { header: 'Tkt Number', sourceType: 'barcode' },
-          { header: 'Name', sourceType: 'participant_name' },
+          { header: 'Full Name', sourceType: 'participant_name' },
         ];
   const serializedColumns = JSON.stringify(effectiveCols, null, 2);
 
   return `// EM QR -> Google Sheets Auto Sync (Apps Script Web App)
+// Preserves all Conditional Formatting rules and cell styles
 const SECRET = '${safeSecret}';
+const TARGET_SHEET_NAME = 'Sheet1';
+const INITIAL_CF_MAX_ROW = 331;
 
 // Custom sheet columns generated from your EM QR configuration:
 const SHEET_COLUMNS = ${serializedColumns};
@@ -461,7 +464,14 @@ function resolveColumnValue(col, entry) {
     case 'dynamic_field':
       return col.fieldKey && dyn[col.fieldKey] !== undefined ? String(dyn[col.fieldKey]) : '';
     case 'item_status':
-      return deliv ? (deliv.statusText || (deliv.delivered ? 'Delivered' : 'Not Delivered')) : 'Not Delivered';
+      if (
+        deliv &&
+        (deliv.delivered === true ||
+          String(deliv.statusText || '').trim().toLowerCase() === 'delivered')
+      ) {
+        return 'Delivered';
+      }
+      return 'Not Delivered';
     case 'item_time':
       return deliv && deliv.delivered ? (deliv.deliveredAt12h || '') : '';
     case 'item_organizer':
@@ -477,6 +487,40 @@ function resolveColumnValue(col, entry) {
   }
 }
 
+function extendConditionalFormatRules(sheet, targetEndRow) {
+  const rules = sheet.getConditionalFormatRules();
+  if (!rules || rules.length === 0) {
+    return { extended: false, ruleCount: 0 };
+  }
+
+  let updated = false;
+  const nextRules = rules.map(function (rule) {
+    const ranges = rule.getRanges();
+    let ruleChanged = false;
+    const expandedRanges = ranges.map(function (rng) {
+      const startRow = rng.getRow();
+      const endRow = rng.getLastRow();
+      if (startRow >= 2 && endRow < targetEndRow) {
+        ruleChanged = true;
+        updated = true;
+        return sheet.getRange(
+          startRow,
+          rng.getColumn(),
+          targetEndRow - startRow + 1,
+          rng.getNumColumns()
+        );
+      }
+      return rng;
+    });
+    return ruleChanged ? rule.copy().setRanges(expandedRanges).build() : rule;
+  });
+
+  if (updated) {
+    sheet.setConditionalFormatRules(nextRules);
+  }
+  return { extended: updated, ruleCount: nextRules.length };
+}
+
 function doPost(e) {
   const lock = LockService.getScriptLock();
   lock.waitLock(25000);
@@ -489,41 +533,56 @@ function doPost(e) {
     }
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheets()[0];
+    const sheet = ss.getSheetByName(TARGET_SHEET_NAME) || ss.getSheets()[0];
     const rows = Array.isArray(data.rows) ? data.rows : [];
     const activeColumns = Array.isArray(data.columns) && data.columns.length > 0
       ? data.columns
       : SHEET_COLUMNS;
     const isReset = data.mode === 'full';
 
-    if (isReset) {
-      sheet.clearContents();
-      sheet.clearFormats();
-    }
-
     const headers = activeColumns.map(function (c, idx) {
       return String(c.header || ('Column ' + (idx + 1))).trim();
     });
     const totalCols = headers.length;
 
-    if (totalCols > 0 && (isReset || sheet.getLastColumn() === 0 || sheet.getLastRow() === 0)) {
+    // 1. Build the entire 2D output matrix in memory first
+    const outputRows = rows.map(function (entry) {
+      return activeColumns.map(function (col) {
+        return resolveColumnValue(col, entry);
+      });
+    });
+
+    const prevLastRow = sheet.getLastRow();
+    const prevLastCol = sheet.getLastColumn();
+
+    if (totalCols > 0 && (isReset || prevLastCol === 0 || prevLastRow === 0)) {
       sheet.getRange(1, 1, 1, totalCols).setValues([headers]);
     }
 
-    const outputRows = [];
-    rows.forEach(function (entry) {
-      const rowArr = activeColumns.map(function (col) {
-        return resolveColumnValue(col, entry);
-      });
-      outputRows.push(rowArr);
-    });
-
-    if (outputRows.length > 0 && totalCols > 0) {
-      const startRow = isReset ? 2 : Math.max(2, sheet.getLastRow() + 1);
-      sheet.getRange(startRow, 1, outputRows.length, totalCols).setValues(outputRows);
+    // 2. Write all rows in one batch setValues() call directly over existing cells
+    let finalLastRow = prevLastRow;
+    if (isReset) {
+      if (outputRows.length > 0 && totalCols > 0) {
+        sheet.getRange(2, 1, outputRows.length, totalCols).setValues(outputRows);
+      }
+      const newLastRow = 1 + outputRows.length;
+      // Clear ONLY excess cell values (never formats or rows) when new dataset is shorter
+      if (prevLastRow > newLastRow) {
+        const excessRows = prevLastRow - newLastRow;
+        const colsToClear = Math.max(totalCols, prevLastCol, 1);
+        sheet.getRange(newLastRow + 1, 1, excessRows, colsToClear).clearContent();
+      }
+      if (prevLastCol > totalCols && totalCols > 0 && prevLastRow >= 1) {
+        sheet.getRange(1, totalCols + 1, prevLastRow, prevLastCol - totalCols).clearContent();
+      }
+      finalLastRow = newLastRow;
+    } else if (outputRows.length > 0 && totalCols > 0) {
+      const appendStartRow = Math.max(2, prevLastRow + 1);
+      sheet.getRange(appendStartRow, 1, outputRows.length, totalCols).setValues(outputRows);
+      finalLastRow = appendStartRow + outputRows.length - 1;
     }
 
-    // Format Row 1 (headers): black bold text, orange background, centered horizontally & vertically
+    // 3. Format Row 1 headers only (black bold, orange fill, centered) — leaves A2:K formatting untouched
     if (totalCols > 0) {
       sheet.getRange(1, 1, 1, totalCols)
         .setFontColor('#000000')
@@ -533,18 +592,34 @@ function doPost(e) {
         .setVerticalAlignment('middle');
     }
 
-    // Center all data rows horizontally & vertically
-    const finalLastRow = sheet.getLastRow();
+    // 4. Align data cells without touching backgrounds or Conditional Formatting
     if (finalLastRow > 1 && totalCols > 0) {
       sheet.getRange(2, 1, finalLastRow - 1, totalCols)
         .setHorizontalAlignment('center')
         .setVerticalAlignment('middle');
     }
 
+    // 5. Auto-extend Conditional Formatting rules if rows exceed row 331
+    let cfExtendedToRow = null;
+    let warning = '';
+    if (finalLastRow > INITIAL_CF_MAX_ROW) {
+      const cfResult = extendConditionalFormatRules(sheet, finalLastRow);
+      if (cfResult.extended) {
+        cfExtendedToRow = finalLastRow;
+      } else if (cfResult.ruleCount === 0) {
+        warning = 'Rows exceeded ' + INITIAL_CF_MAX_ROW + ' (' + finalLastRow + ') and no conditional format rules were found.';
+      }
+    }
+
+    // 6. Flush pending changes immediately
+    SpreadsheetApp.flush();
+
     return jsonOut({
       ok: true,
-      updatedRows: 0,
-      insertedRows: outputRows.length,
+      updatedRows: isReset ? outputRows.length : 0,
+      insertedRows: isReset ? 0 : outputRows.length,
+      cfExtendedToRow: cfExtendedToRow,
+      warning: warning || undefined,
       syncedAt: data.sentAt12h || ''
     });
   } catch (err) {

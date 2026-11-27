@@ -368,7 +368,7 @@ export const EventSheetsDesignerTab: React.FC<EventSheetsDesignerTabProps> = ({
                 ربط Google Sheet والمزامنة التلقائية
               </h2>
               <p className="text-xs text-slate-500 dark:text-neutral-400">
-                عند كل عملية تسليم أو تعديل يتم مسح الشيت وإعادة كتابته بالكامل وفق الأعمدة التي تصممها أدناه.
+                عند كل عملية تسليم أو تعديل يتم تحديث الصفوف دفعة واحدة مع الحفاظ على التنسيق والتلوين الشرطي وتمديد نطاقه تلقائياً.
               </p>
             </div>
           </div>

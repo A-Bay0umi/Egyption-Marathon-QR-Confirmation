@@ -161,7 +161,7 @@ test('buildDefaultSheetsColumns and getEffectiveSheetsColumns resolve custom vs 
   );
 });
 
-test('generateGoogleAppsScriptCode embeds custom SHEET_COLUMNS, full reset, and orange/centered formatting', () => {
+test('generateGoogleAppsScriptCode preserves conditional formatting, extends >331 range, and flushes batch setValues', () => {
   const customCols: SheetsColumnMapping[] = [
     { id: 'c1', header: 'Ticket No', sourceType: 'barcode' },
     { id: 'c2', header: 'Shirt Size', sourceType: 'dynamic_field', fieldKey: 'Size' },
@@ -175,8 +175,19 @@ test('generateGoogleAppsScriptCode embeds custom SHEET_COLUMNS, full reset, and 
   assert.equal(code.includes('"fieldKey": "Size"'), true);
   assert.equal(code.includes('"sourceType": "item_booth"'), true);
   assert.equal(code.includes("const isReset = data.mode === 'full';"), true);
-  assert.equal(code.includes('sheet.clearContents();'), true);
-  assert.equal(code.includes('sheet.clearFormats();'), true);
+  // Forbidden format/row wiping calls must never exist
+  assert.equal(code.includes('.clear('), false);
+  assert.equal(code.includes('clearFormats'), false);
+  assert.equal(code.includes('deleteRows'), false);
+  assert.equal(code.includes('deleteRow('), false);
+  // Required conditional-formatting-safe operations
+  assert.equal(code.includes('.clearContent()'), true);
+  assert.equal(code.includes('.setValues(outputRows)'), true);
+  assert.equal(code.includes('getConditionalFormatRules()'), true);
+  assert.equal(code.includes('setConditionalFormatRules('), true);
+  assert.equal(code.includes("return 'Delivered';"), true);
+  assert.equal(code.includes("return 'Not Delivered';"), true);
+  assert.equal(code.includes('SpreadsheetApp.flush();'), true);
   assert.equal(code.includes(".setFontColor('#000000')"), true);
   assert.equal(code.includes(".setFontWeight('bold')"), true);
   assert.equal(code.includes(".setBackground('#FF9800')"), true);
